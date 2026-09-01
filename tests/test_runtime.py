@@ -64,3 +64,42 @@ def test_probe_tcp_detects_listening_socket():
         assert probe_tcp(host, port, timeout=0.1) is True
     finally:
         listener.close()
+
+
+def test_settings_generates_and_reuses_persistent_control_token(monkeypatch, tmp_path: Path):
+    from app.config import Settings
+
+    monkeypatch.delenv("WECHAT_CONTROL_TOKEN", raising=False)
+    monkeypatch.setenv("WECHAT_STATE_DIR", str(tmp_path))
+
+    first = Settings.from_env()
+    second = Settings.from_env()
+
+    assert first.control_token
+    assert first.control_token == second.control_token
+    token_file = tmp_path / ".control-token"
+    assert token_file.read_text(encoding="utf-8").strip() == first.control_token
+    assert token_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_explicit_control_token_wins_without_creating_token_file(monkeypatch, tmp_path: Path):
+    from app.config import Settings
+
+    monkeypatch.setenv("WECHAT_CONTROL_TOKEN", "explicit-secret")
+    monkeypatch.setenv("WECHAT_STATE_DIR", str(tmp_path))
+
+    settings = Settings.from_env()
+
+    assert settings.control_token == "explicit-secret"
+    assert not (tmp_path / ".control-token").exists()
+
+
+def test_runtime_metadata_does_not_initialize_wechat_profile(tmp_path: Path):
+    (tmp_path / ".control-token").write_text("secret", encoding="utf-8")
+    (tmp_path / ".v0-acceptance-before.json").write_text("{}", encoding="utf-8")
+
+    assert summarize_state_dir(tmp_path) == {
+        "initialized": False,
+        "file_count": 0,
+        "total_bytes": 0,
+    }
