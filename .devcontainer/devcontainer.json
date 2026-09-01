@@ -10,7 +10,7 @@
     "3001": {
       "label": "WeChat Web UI",
       "protocol": "https",
-      "onAutoForward": "silent"
+      "onAutoForward": "openBrowser"
     },
     "8787": {
       "label": "WeChat Runtime Control API",
