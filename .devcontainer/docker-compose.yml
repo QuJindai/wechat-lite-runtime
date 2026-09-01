@@ -1,0 +1,37 @@
+services:
+  workspace:
+    image: mcr.microsoft.com/devcontainers/python:1-3.12-bookworm
+    command: sleep infinity
+    volumes:
+      - ..:/workspaces/wechat-lite-runtime:cached
+    ports:
+      - "8787:8787"
+    environment:
+      WECHAT_CONTROL_TOKEN: ${WECHAT_CONTROL_TOKEN:-}
+      CODESPACE_NAME: ${CODESPACE_NAME:-}
+      WECHAT_STATE_DIR: /workspaces/wechat-lite-runtime/state
+      WECHAT_WEB_HOST: wechat
+      WECHAT_WEB_PORT: "3001"
+      WECHAT_PROBE_TIMEOUT: "0.5"
+    depends_on:
+      - wechat
+
+  wechat:
+    image: ${WECHAT_IMAGE:-ghcr.io/nickrunning/wechat-selkies:minimal}
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../state:/config
+    shm_size: 1gb
+    environment:
+      PUID: "1000"
+      PGID: "100"
+      TZ: Asia/Shanghai
+      LC_ALL: zh_CN.UTF-8
+      AUTO_START_WECHAT: "true"
+      AUTO_START_QQ: "false"
+      ENABLE_WECHAT_AUTO_LOGIN: "true"
+      AUTO_LOGIN_DELAY: "3"
+      CUSTOM_USER: ${SELKIES_USER:-}
+      PASSWORD: ${SELKIES_PASSWORD:-}
