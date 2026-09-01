@@ -9,6 +9,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.config import ensure_control_token
+
 SNAPSHOT_FILE = ".v0-acceptance-before.json"
 DEFAULT_STATUS_URL = "http://127.0.0.1:8787/v1/runtime/status"
 
@@ -120,10 +122,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    token = os.getenv("WECHAT_CONTROL_TOKEN", "")
-    if not token:
-        _print_result({"verdict": "CONTROL_TOKEN_MISSING"})
-        return 2
+    state_dir = Path(args.state_dir)
+    token = ensure_control_token(state_dir, os.getenv("WECHAT_CONTROL_TOKEN"))
 
     try:
         status = fetch_runtime_status(token, args.status_url)
@@ -131,7 +131,6 @@ def main(argv: list[str] | None = None) -> int:
         _print_result({"verdict": "CONTROL_API_ERROR", "error": str(exc)})
         return 2
 
-    state_dir = Path(args.state_dir)
     if args.mode == "before":
         result = record_before(state_dir, status)
         if not result["snapshot"]["session_initialized"]:
