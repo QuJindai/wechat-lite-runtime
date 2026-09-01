@@ -49,3 +49,14 @@ def test_development_doc_keeps_main_merge_blocked_until_phone_gate():
     development = (ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
     assert "PHYSICAL_LOGIN_PERSISTENCE" in development
     assert "Do not merge" in development
+
+
+def test_wechat_ui_auto_opens_when_codespace_starts():
+    devcontainer = load_json(".devcontainer/devcontainer.json")
+    assert devcontainer["portsAttributes"]["3001"]["onAutoForward"] == "openBrowser"
+
+
+def test_readme_documents_one_command_acceptance():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "python -m app.acceptance before" in readme
+    assert "python -m app.acceptance after" in readme
