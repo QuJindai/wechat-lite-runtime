@@ -31,3 +31,9 @@ Expected automated verdict after restart:
 - `STORAGE_PASS_AUTH_PENDING` — persistent state survived and WeChat Web UI is ready; open the UI and confirm the account is still logged in.
 - `RUNTIME_NOT_READY` — the state exists but the WeChat Web UI is not listening yet.
 - `STATE_LOST` — the persistent acceptance marker or initialized profile is missing.
+
+## Open or resume the V0 Codespace
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1)
+
+The `quickstart=1` link resumes your most recent matching Codespace when available; otherwise it opens the create-Codespace page for the V0 feature branch.
