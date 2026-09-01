@@ -174,3 +174,25 @@ def test_main_after_returns_failure_code_for_lost_state(monkeypatch, tmp_path, c
 
     assert exit_code == 2
     assert "STATE_LOST" in capsys.readouterr().out
+
+
+def test_main_uses_persistent_control_token_when_env_secret_is_absent(monkeypatch, tmp_path, capsys):
+    status = {
+        "codespace_name": "silver-potato",
+        "wechat_web_ready": True,
+        "ui_url": "https://silver-potato-3001.app.github.dev",
+        "session_storage": {"initialized": True, "file_count": 5, "total_bytes": 100},
+    }
+    monkeypatch.delenv("WECHAT_CONTROL_TOKEN", raising=False)
+    (tmp_path / ".control-token").write_text("persisted-secret", encoding="utf-8")
+    seen = {}
+    def fake_fetch(token, url):
+        seen["token"] = token
+        return status
+    monkeypatch.setattr("app.acceptance.fetch_runtime_status", fake_fetch)
+
+    exit_code = main(["before", "--state-dir", str(tmp_path)])
+
+    assert exit_code == 0
+    assert seen["token"] == "persisted-secret"
+    assert "BASELINE_RECORDED" in capsys.readouterr().out
