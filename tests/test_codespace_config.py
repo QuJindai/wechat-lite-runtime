@@ -60,3 +60,15 @@ def test_readme_documents_one_command_acceptance():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "python -m app.acceptance before" in readme
     assert "python -m app.acceptance after" in readme
+
+
+def test_workspace_does_not_override_codespaces_injected_identity_or_secret():
+    compose = load_yaml(".devcontainer/docker-compose.yml")
+    workspace_env = compose["services"]["workspace"]["environment"]
+    assert "WECHAT_CONTROL_TOKEN" not in workspace_env
+    assert "CODESPACE_NAME" not in workspace_env
+
+
+def test_devcontainer_recommends_control_token_secret():
+    devcontainer = load_json(".devcontainer/devcontainer.json")
+    assert "WECHAT_CONTROL_TOKEN" in devcontainer["secrets"]
