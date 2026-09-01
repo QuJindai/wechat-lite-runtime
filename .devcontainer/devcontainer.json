@@ -3,9 +3,14 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "workspace",
   "workspaceFolder": "/workspaces/wechat-lite-runtime",
-  "runServices": ["wechat"],
+  "runServices": [
+    "wechat"
+  ],
   "shutdownAction": "stopCompose",
-  "forwardPorts": [3001, 8787],
+  "forwardPorts": [
+    3001,
+    8787
+  ],
   "portsAttributes": {
     "3001": {
       "label": "WeChat Web UI",
@@ -18,5 +23,10 @@
     }
   },
   "postCreateCommand": "python -m pip install -r requirements-dev.txt",
-  "postStartCommand": "bash scripts/start-control-api.sh"
+  "postStartCommand": "bash scripts/start-control-api.sh",
+  "secrets": {
+    "WECHAT_CONTROL_TOKEN": {
+      "description": "Bearer token used to protect the WeChat Lite Runtime control API."
+    }
+  }
 }
