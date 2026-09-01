@@ -69,9 +69,9 @@ def test_workspace_does_not_override_codespaces_injected_identity_or_secret():
     assert "CODESPACE_NAME" not in workspace_env
 
 
-def test_devcontainer_recommends_control_token_secret():
+def test_devcontainer_does_not_require_manual_control_token_secret():
     devcontainer = load_json(".devcontainer/devcontainer.json")
-    assert "WECHAT_CONTROL_TOKEN" in devcontainer["secrets"]
+    assert "secrets" not in devcontainer or "WECHAT_CONTROL_TOKEN" not in devcontainer["secrets"]
 
 
 def test_readme_has_branch_specific_codespaces_quickstart_link():
