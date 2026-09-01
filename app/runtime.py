@@ -10,6 +10,13 @@ def build_codespace_port_url(codespace_name: str | None, port: int) -> str | Non
     return f"https://{codespace_name}-{port}.app.github.dev"
 
 
+RUNTIME_METADATA_FILES = {
+    ".gitignore",
+    ".control-token",
+    ".v0-acceptance-before.json",
+}
+
+
 def summarize_state_dir(path: Path) -> dict[str, int | bool]:
     if not path.exists():
         return {"initialized": False, "file_count": 0, "total_bytes": 0}
@@ -17,7 +24,7 @@ def summarize_state_dir(path: Path) -> dict[str, int | bool]:
     file_count = 0
     total_bytes = 0
     for item in path.rglob("*"):
-        if not item.is_file() or item.name == ".gitignore":
+        if not item.is_file() or item.name in RUNTIME_METADATA_FILES:
             continue
         file_count += 1
         try:
