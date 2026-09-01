@@ -37,3 +37,9 @@ Expected automated verdict after restart:
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1)
 
 The `quickstart=1` link resumes your most recent matching Codespace when available; otherwise it opens the create-Codespace page for the V0 feature branch.
+
+## Control-token behavior
+
+No manual secret setup is required for V0. If `WECHAT_CONTROL_TOKEN` is not provided, the runtime creates a cryptographically random token at `state/.control-token` with mode `0600` and reuses it after Codespace stop/start.
+
+If you explicitly configure `WECHAT_CONTROL_TOKEN` as a Codespaces secret, that value takes precedence and no local token file is created.
