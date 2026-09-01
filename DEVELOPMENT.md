@@ -14,6 +14,17 @@ python -m json.tool .devcontainer/devcontainer.json >/dev/null
 bash -n scripts/start-control-api.sh
 ```
 
+## Verified software status
+
+- Local isolated workspace: `python -m pytest -q` -> **18 passed**.
+- Dev Container JSON validation: PASS.
+- Control startup shell syntax: PASS.
+- GitHub push workflow run `33534140318`: **success**.
+- GitHub pull-request workflow run `33534153102`: **success**.
+- Draft PR: `#1 feat: add on-demand Codespaces WeChat runtime`.
+- GitHub development status: `development_ready`.
+- Remaining gate: `PHYSICAL_LOGIN_PERSISTENCE`.
+
 ## Physical gate: PHYSICAL_LOGIN_PERSISTENCE
 
 This gate requires a real GitHub Codespace and a real WeChat login.
