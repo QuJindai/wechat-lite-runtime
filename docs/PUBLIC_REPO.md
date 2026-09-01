@@ -1,3 +1,3 @@
 # Public repository intent
 
-Public repository for development and standard GitHub Actions. Codespaces compute remains governed by the account's included Codespaces usage and billing rules.
+This repository is intended to be public. Standard GitHub Actions on public repositories do not consume private-repository Actions minutes. GitHub Codespaces usage is separate and remains governed by the account's Codespaces quota and billing rules.
