@@ -72,3 +72,8 @@ def test_workspace_does_not_override_codespaces_injected_identity_or_secret():
 def test_devcontainer_recommends_control_token_secret():
     devcontainer = load_json(".devcontainer/devcontainer.json")
     assert "WECHAT_CONTROL_TOKEN" in devcontainer["secrets"]
+
+
+def test_readme_has_branch_specific_codespaces_quickstart_link():
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1" in readme
