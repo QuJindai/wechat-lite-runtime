@@ -4,42 +4,32 @@
 
 Prove the lightweight Codespaces architecture before adding a wake gateway, MCP layer or public-account automation.
 
-## Current software gate
-
-The branch must pass:
-
-```bash
-python -m pytest -q
-python -m json.tool .devcontainer/devcontainer.json >/dev/null
-bash -n scripts/start-control-api.sh
-```
-
 ## Verified software status
 
-- Local isolated workspace: `python -m pytest -q` -> **18 passed**.
+- Repository visibility: **public**.
+- Local isolated workspace after acceptance-helper update: `python -m pytest -q` -> **29 passed**.
 - Dev Container JSON validation: PASS.
 - Control startup shell syntax: PASS.
-- GitHub push workflow run `33534140318`: **success**.
-- GitHub pull-request workflow run `33534153102`: **success**.
+- Codespaces WeChat UI port `3001` is configured to auto-open in the browser.
+- Restart acceptance helper added: `python -m app.acceptance before|after`.
+- Helper records only aggregate state counts and readiness; it does not read WeChat content.
 - Draft PR: `#1 feat: add on-demand Codespaces WeChat runtime`.
-- GitHub development status: `development_ready`.
 - Remaining gate: `PHYSICAL_LOGIN_PERSISTENCE`.
 
 ## Physical gate: PHYSICAL_LOGIN_PERSISTENCE
 
-This gate requires a real GitHub Codespace and a real WeChat login.
-
 1. Create the Codespace from `feat/v0-codespace-runtime`.
 2. Set `WECHAT_CONTROL_TOKEN` as a Codespaces secret.
-3. Open forwarded HTTPS port `3001`.
+3. Port `3001` auto-opens the WeChat Web UI.
 4. Scan the login QR code and reach the normal WeChat interface.
-5. Confirm `/v1/runtime/status` reports `session_storage.initialized=true`.
+5. Run `python -m app.acceptance before`.
 6. Stop the Codespace.
 7. Start the same Codespace.
-8. Confirm `session_storage.initialized=true` with nonzero persisted bytes.
-9. Open port `3001` and verify the profile is reused.
+8. Run `python -m app.acceptance after`.
+9. Automated target verdict: `STORAGE_PASS_AUTH_PENDING`.
+10. Visually confirm WeChat is still logged in. Then the physical gate is PASS.
 
-PASS means the persistent profile survived stop/start and WeChat reused it without profile recreation. If Tencent explicitly requires account re-authentication while the stored profile remains intact, record `AUTH_RESCAN_REQUIRED` rather than `STATE_LOST`.
+`STATE_LOST` means the persistent marker/profile disappeared. `AUTH_RESCAN_REQUIRED` means Tencent requested re-authentication while persistent storage remained intact; these are different failures.
 
 **Do not merge** the V0 branch into `main` until `PHYSICAL_LOGIN_PERSISTENCE` has a PASS result or the user explicitly accepts the remaining device-only gate.
 
