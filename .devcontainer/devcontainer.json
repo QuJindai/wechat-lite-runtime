@@ -23,10 +23,5 @@
     }
   },
   "postCreateCommand": "python -m pip install -r requirements-dev.txt",
-  "postStartCommand": "bash scripts/start-control-api.sh",
-  "secrets": {
-    "WECHAT_CONTROL_TOKEN": {
-      "description": "Bearer token used to protect the WeChat Lite Runtime control API."
-    }
-  }
+  "postStartCommand": "bash scripts/start-control-api.sh"
 }
