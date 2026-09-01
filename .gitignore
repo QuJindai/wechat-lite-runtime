@@ -1,0 +1,7 @@
+state/*
+!state/.gitignore
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
