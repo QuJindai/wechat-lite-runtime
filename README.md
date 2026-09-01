@@ -1,6 +1,8 @@
 # WeChat Lite Runtime
 
-On-demand GitHub Codespaces runtime for the official Linux WeChat client.
+A lightweight, on-demand GitHub Codespaces runtime for the official Linux WeChat client.
+
+V0 deliberately does not rebuild or redistribute WeChat. It composes the upstream `ghcr.io/nickrunning/wechat-selkies:minimal` image with a small FastAPI control service. The upstream container downloads/contains the official Linux WeChat client and exposes it through Selkies WebRTC.
 
 Persistent session path: `state/ -> /config`.
 
@@ -8,4 +10,24 @@ Physical V0 gate: `scan -> stop -> start -> verify`.
 
 Runtime image: `ghcr.io/nickrunning/wechat-selkies:minimal`.
 
-See `DEVELOPMENT.md` and the design/implementation plans under `docs/superpowers/`.
+## One-command V0 acceptance
+
+After the first QR scan has completed and the WeChat profile exists:
+
+```bash
+python -m app.acceptance before
+```
+
+Stop the Codespace, start the same Codespace again, then run:
+
+```bash
+python -m app.acceptance after
+```
+
+The helper records only aggregate storage counts and runtime readiness. It never reads or prints WeChat database contents, cookies, filenames, contacts, messages, or QR data.
+
+Expected automated verdict after restart:
+
+- `STORAGE_PASS_AUTH_PENDING` — persistent state survived and WeChat Web UI is ready; open the UI and confirm the account is still logged in.
+- `RUNTIME_NOT_READY` — the state exists but the WeChat Web UI is not listening yet.
+- `STATE_LOST` — the persistent acceptance marker or initialized profile is missing.
