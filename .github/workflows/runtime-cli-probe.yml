@@ -150,7 +150,9 @@ jobs:
               for desktop in /usr/share/applications/com.tencent.WeChat.desktop /usr/share/applications/WeChat.desktop; do
                 if [ -f "$desktop" ]; then
                   echo DESKTOP_FILE=$desktop
-                  grep -E "^(Name|Exec|MimeType)=" "$desktop" || true
+                  grep -E "^Name=" "$desktop" || true
+                  grep -E "^Exec=" "$desktop" || true
+                  grep -E "^MimeType=" "$desktop" || true
                 fi
               done
               find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop" -print 2>/dev/null | sort -u
