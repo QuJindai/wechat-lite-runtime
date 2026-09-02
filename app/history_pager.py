@@ -8,7 +8,15 @@ from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit, urlunsplit
 from app.history_seed import HistorySeed
 from app.public_accounts import ArticleRecord, CHINA_TZ, normalize_article
 
-_CONTROL_KEYS = {"action", "offset", "count", "f", "is_ok"}
+_CONTROL_KEYS = {"action", "offset", "count", "f", "is_ok", "scene"}
+
+
+class ProfileExtAuthError(ValueError):
+    pass
+
+
+class ProfileExtResponseError(ValueError):
+    pass
 
 
 def _validate_seed(seed: HistorySeed) -> None:
@@ -21,7 +29,7 @@ def build_page_url(seed: HistorySeed, offset: int, count: int = 10) -> str:
     _validate_seed(seed)
     if offset < 0:
         raise ValueError("offset_must_be_non_negative")
-    if count < 1 or count > 100:
+    if count < 1 or count > 10:
         raise ValueError("count_out_of_range")
 
     parsed = urlsplit(seed._raw_url)
@@ -33,6 +41,7 @@ def build_page_url(seed: HistorySeed, offset: int, count: int = 10) -> str:
             ("offset", str(offset)),
             ("count", str(count)),
             ("is_ok", "1"),
+            ("scene", "124"),
         ]
     )
     return urlunsplit(("https", "mp.weixin.qq.com", "/mp/profile_ext", urlencode(pairs), ""))
@@ -87,6 +96,19 @@ def _article_raw(
     }
 
 
+def _validate_profile_ext_ret(outer: dict[str, object]) -> None:
+    raw_ret = outer.get("ret", 0)
+    try:
+        ret = int(raw_ret)
+    except (TypeError, ValueError) as exc:
+        raise ProfileExtResponseError("profile_ext_invalid_ret") from exc
+    if ret == 0:
+        return
+    if ret == -3:
+        raise ProfileExtAuthError("profile_ext_login_required")
+    raise ProfileExtResponseError("profile_ext_request_rejected")
+
+
 def parse_profile_ext_page(payload: bytes, account_name: str) -> tuple[list[ArticleRecord], bool]:
     try:
         outer = json.loads(payload.decode("utf-8"))
@@ -95,6 +117,7 @@ def parse_profile_ext_page(payload: bytes, account_name: str) -> tuple[list[Arti
     if not isinstance(outer, dict):
         raise ValueError("invalid_profile_ext_payload")
 
+    _validate_profile_ext_ret(outer)
     general = _decode_general_msg_list(outer.get("general_msg_list"))
     entries = general.get("list") or []
     if not isinstance(entries, list):
