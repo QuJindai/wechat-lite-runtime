@@ -23,5 +23,5 @@
     }
   },
   "postCreateCommand": "python -m pip install -r requirements-dev.txt",
-  "postStartCommand": "bash scripts/start-control-api.sh && (nohup bash scripts/run-pending-acceptance.sh >/tmp/v1-pending-acceptance.log 2>&1 &)"
+  "postStartCommand": "bash scripts/start-control-api.sh && (bash scripts/run-pending-acceptance.sh || true)"
 }
