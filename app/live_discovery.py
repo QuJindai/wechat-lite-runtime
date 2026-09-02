@@ -42,18 +42,22 @@ class LiveDiscoveryService:
         return "LiveDiscoveryService(state_dir='<private>')"
 
     @staticmethod
-    def _select_candidate(candidates: list[CaptureCandidate], target_biz: str) -> CaptureCandidate:
-        matching = [
-            candidate
-            for candidate in candidates
-            if candidate.fields.get("biz") == target_biz
-        ]
+    def _valid_candidates(candidates: list[CaptureCandidate], target_biz: str) -> list[CaptureCandidate]:
+        valid: list[CaptureCandidate] = []
+        matching = [candidate for candidate in candidates if candidate.fields.get("biz") == target_biz]
         for candidate in sorted(matching, key=lambda item: item.modified_at, reverse=True):
             try:
                 history_seed_from_candidate(candidate)
             except ProviderError:
                 continue
-            return candidate
+            valid.append(candidate)
+        return valid
+
+    @classmethod
+    def _select_candidate(cls, candidates: list[CaptureCandidate], target_biz: str) -> CaptureCandidate:
+        valid = cls._valid_candidates(candidates, target_biz)
+        if valid:
+            return valid[0]
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "matching_credential_candidate_not_observed")
 
     def recent_articles(self, account_name: str, biz: str, limit: int) -> DiscoveryResult:
@@ -70,12 +74,32 @@ class LiveDiscoveryService:
         if not bootstrap.credential_observed or not bootstrap.candidates:
             raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_not_observed")
 
-        candidate = self._select_candidate(bootstrap.candidates, normalized_biz)
-        seed = history_seed_from_candidate(candidate)
-        transport = self._transport_factory(candidate)
-        provider = AuthenticatedHistoryProvider(None, transport, seed=seed)
-        result = provider.recent_articles(normalized_account, limit)
+        candidates = self._valid_candidates(bootstrap.candidates, normalized_biz)
+        if not candidates:
+            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "matching_credential_candidate_not_observed")
 
-        if not result.articles or any(article.biz != normalized_biz for article in result.articles):
-            raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
-        return result
+        saw_login_required = False
+        last_retryable: ProviderError | None = None
+        for candidate in candidates:
+            try:
+                seed = history_seed_from_candidate(candidate)
+                transport = self._transport_factory(candidate)
+                provider = AuthenticatedHistoryProvider(None, transport, seed=seed)
+                result = provider.recent_articles(normalized_account, limit)
+                if not result.articles or any(article.biz != normalized_biz for article in result.articles):
+                    raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
+                return result
+            except ProviderError as exc:
+                if exc.code == "PAGINATION_INCOMPLETE":
+                    raise
+                if exc.code in {"LOGIN_REQUIRED", "HISTORY_SURFACE_UNAVAILABLE", "ACCOUNT_NOT_FOUND"}:
+                    saw_login_required = saw_login_required or exc.code == "LOGIN_REQUIRED"
+                    last_retryable = exc
+                    continue
+                raise
+
+        if saw_login_required:
+            raise ProviderError("LOGIN_REQUIRED", "all_credential_candidates_stale")
+        if last_retryable is not None:
+            raise ProviderError(last_retryable.code, "all_credential_candidates_failed")
+        raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_not_observed")
