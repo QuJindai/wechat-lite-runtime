@@ -1,9 +1,5 @@
 # Development Status
 
-## V0 objective
-
-Prove the lightweight Codespaces architecture before adding wake orchestration, MCP packaging or public-account automation.
-
 ## V0 final status
 
 **V0 = PASS**
@@ -28,24 +24,34 @@ Therefore:
 - `CODESPACE_STATE_PERSISTENCE = PASS`
 - `PHYSICAL_LOGIN_PERSISTENCE = PASS`
 
-No manual `WECHAT_CONTROL_TOKEN` setup is required for V0. The runtime creates and persists a local control token automatically when an explicit secret is absent.
+## V1 Phase A software status
 
-## V1 next phase
+V1 branch: `feat/v1-public-account-discovery`.
 
-Build authenticated public-account discovery on top of the proven logged-in WeChat runtime. V1 scope:
+Implemented and covered by synthetic CI contracts:
 
-1. Select or search a public account in the logged-in WeChat UI.
-2. Open its history / all-messages surface.
-3. Extract normalized article metadata: title, canonical URL, published time, account identity and pagination cursor.
-4. Support `recent N` and bounded time-window collection.
-5. Deduplicate and persist only article metadata outside the private WeChat session directory.
-6. Expose a small local API suitable for later standalone `@微信` MCP packaging.
-7. Keep WeChat credentials, cookies, local databases and session material private to the runtime.
+- sanitized runtime artifact classifier and bearer-protected `GET /v1/wechat/probe`
+- article URL canonicalization and auth/query redaction
+- normalized article/discovery models with independent completeness flags
+- synthetic multi-page provider with deterministic URL deduplication and explicit provider errors
+- bearer-protected `GET /v1/public-accounts/{account}/recent?limit=20` provider API contract
+- one-command real-Codespace safe probe handoff
 
-The first V1 gate is: **one named public account -> newest 20 articles with verified timestamps and no duplicate URLs**.
+Status:
+
+- `V1_PHASE_A_SOFTWARE = PASS`
+- `V1_SAFE_RUNTIME_PROBE = PENDING_PHYSICAL`
+
+The next physical action is to run `bash scripts/probe-wechat-state.sh` inside the already logged-in Codespace after switching it to this branch. Only sanitized artifact classes, counts and redacted relative roots may be shared back.
+
+The probe evidence determines whether the authenticated history implementation can use a WebView/browser-session path directly or needs GUI guidance/local-cache verification. Do not guess cookie/database paths before this evidence exists.
+
+The first end-to-end V1 gate remains: **one named public account -> newest 20 articles -> verified timestamps -> unique canonical URLs -> verified freshness/account identity -> manual first/20th UI cross-check -> zero session secrets in output/logs**.
 
 ## Later phases
 
-- Wake gateway / automatic Codespaces Start/Stop orchestration.
-- Standalone `@微信` MCP packaging.
-- Optional integration: expose article URLs to `深析` as a provider without sharing WeChat session material.
+- authenticated WebView/history extraction based on the physical safe-probe evidence
+- bounded time-window/all-history pagination after newest-20 PASS
+- wake gateway / automatic Codespaces Start/Stop orchestration
+- standalone `@微信` MCP packaging
+- optional integration: expose article URLs to `深析` as a provider without sharing WeChat session material
