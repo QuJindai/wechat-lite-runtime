@@ -72,7 +72,7 @@ Phase B software adds:
 
 Status:
 
-- `V1_PHASE_B_SOFTWARE = PASS_PENDING_FINAL_CI`
+- `V1_PHASE_B_SOFTWARE = PASS`
 - `V1_WEBVIEW_CONTAINER_PROBE = PENDING_PHYSICAL`
 
 The next physical action is to run `bash scripts/probe-wechat-webview.sh` in the existing logged-in Codespace on `feat/v1-public-account-discovery`. Only sanitized profile/container paths, schema names and marker counts may be shared back. The command does not return cookie or token values.
