@@ -3,17 +3,23 @@ from __future__ import annotations
 import secrets
 from collections.abc import Callable
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
+from app.providers import ProviderError, PublicAccountProvider
+from app.public_accounts import redact_sensitive_text
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
 from app.wechat_probe import probe_state
 
 TcpProbe = Callable[[str, int, float], bool]
 
 
-def create_app(settings: Settings, tcp_probe: TcpProbe = probe_tcp) -> FastAPI:
+def create_app(
+    settings: Settings,
+    tcp_probe: TcpProbe = probe_tcp,
+    public_account_provider: PublicAccountProvider | None = None,
+) -> FastAPI:
     application = FastAPI(title="WeChat Lite Runtime", version="0.2.0")
     bearer = HTTPBearer(auto_error=False)
 
@@ -56,6 +62,40 @@ def create_app(settings: Settings, tcp_probe: TcpProbe = probe_tcp) -> FastAPI:
     @application.get("/v1/wechat/probe", dependencies=[Depends(require_control_token)])
     def wechat_probe() -> dict[str, object]:
         return probe_state(settings.state_dir)
+
+    @application.get(
+        "/v1/public-accounts/{account}/recent",
+        dependencies=[Depends(require_control_token)],
+    )
+    def public_account_recent(
+        account: str,
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> dict[str, object]:
+        if public_account_provider is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "HISTORY_SURFACE_UNAVAILABLE",
+                    "message": "public_account_provider_not_configured",
+                },
+            )
+        try:
+            result = public_account_provider.recent_articles(account, limit)
+        except ProviderError as exc:
+            error_status = {
+                "LOGIN_REQUIRED": status.HTTP_409_CONFLICT,
+                "ACCOUNT_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+                "HISTORY_SURFACE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
+                "PAGINATION_INCOMPLETE": status.HTTP_502_BAD_GATEWAY,
+            }.get(exc.code, status.HTTP_502_BAD_GATEWAY)
+            raise HTTPException(
+                status_code=error_status,
+                detail={
+                    "code": exc.code,
+                    "message": redact_sensitive_text(str(exc)),
+                },
+            ) from exc
+        return result.to_dict()
 
     return application
 
