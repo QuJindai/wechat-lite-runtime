@@ -34,6 +34,9 @@ _ALLOWED_FIELDS = (
     "appmsg_token",
     "poc_sid",
     "poc_token",
+    "mid",
+    "idx",
+    "sessionid",
 )
 
 
@@ -124,21 +127,39 @@ def _candidate_from_url(raw_url: str, target_biz: str, modified_at: float, root_
     parsed = urlparse(value)
     if (parsed.hostname or "").lower() != "mp.weixin.qq.com":
         return None
+    if parsed.path not in {"/mp/profile_ext", "/mp/relatedsearchword"}:
+        return None
+
     query = parse_qs(parsed.query, keep_blank_values=True)
     biz = (query.get("__biz") or [""])[0]
     if biz != target_biz:
         return None
 
     fields: dict[str, str] = {"biz": biz}
-    for name in ("uin", "key", "pass_ticket", "appmsg_token", "poc_sid", "poc_token"):
+    for name in (
+        "uin",
+        "key",
+        "pass_ticket",
+        "appmsg_token",
+        "poc_sid",
+        "poc_token",
+        "mid",
+        "idx",
+        "sessionid",
+    ):
         values = query.get(name)
         if values and values[0]:
             fields[name] = values[0]
 
-    legacy_ready = all(fields.get(name) for name in ("uin", "key", "pass_ticket"))
-    token_ready = all(fields.get(name) for name in ("appmsg_token", "pass_ticket"))
-    if not (legacy_ready or token_ready):
-        return None
+    if parsed.path == "/mp/relatedsearchword":
+        required = ("biz", "uin", "key", "pass_ticket", "appmsg_token", "mid", "idx", "sessionid")
+        if not all(fields.get(name) for name in required):
+            return None
+    else:
+        legacy_ready = all(fields.get(name) for name in ("uin", "key", "pass_ticket"))
+        token_ready = all(fields.get(name) for name in ("appmsg_token", "pass_ticket"))
+        if not (legacy_ready or token_ready):
+            return None
 
     return CaptureCandidate(
         request_url=value,
