@@ -90,6 +90,33 @@ jobs:
           assert safe['executable'] == '/usr/bin/wechat', safe
           PY
 
+      - name: Exercise X11 public-account search bridge without leaking input
+        run: |
+          docker compose -f .devcontainer/docker-compose.yml exec -T workspace python - <<'PY'
+          import json
+          import urllib.request
+
+          account_name = 'SMOKE_PUBLIC_ACCOUNT_NAME'
+          request = urllib.request.Request(
+              'http://127.0.0.1:8790/search',
+              data=json.dumps({'account_name': account_name}).encode(),
+              headers={
+                  'Authorization': 'Bearer test-control-token',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(request, timeout=10) as response:
+              payload = json.loads(response.read().decode())
+          assert response.status == 200
+          assert set(payload) == {'dispatch_attempted', 'window_found', 'search_submitted'}, payload
+          assert all(isinstance(payload[key], bool) for key in payload), payload
+          rendered = json.dumps(payload)
+          assert account_name not in rendered
+          assert 'test-control-token' not in rendered
+          print(rendered)
+          PY
+
       - name: Cleanup
         if: always()
         run: docker compose -f .devcontainer/docker-compose.yml down -v || true
