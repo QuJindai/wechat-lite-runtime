@@ -106,6 +106,39 @@ jobs:
             | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' \
             > /tmp/runtime-cli-probe/runtime-config-hints.txt || true
 
+      - name: Probe X11 controller capability and WeChat window metadata
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          {
+            echo 'DISPLAY=:1'
+            echo '--- commands ---'
+            for command_name in xdotool xprop xclip; do
+              printf '%s=' "$command_name"
+              docker exec "$cid" bash -lc "command -v $command_name 2>/dev/null || true"
+            done
+            echo '--- visible wechat windows ---'
+            docker exec "$cid" bash -lc '
+              export DISPLAY=:1
+              ids="$(xdotool search --onlyvisible --class wechat 2>/dev/null || true)"
+              if [ -z "$ids" ]; then
+                echo WECHAT_WINDOWS=0
+                exit 0
+              fi
+              count=0
+              for id in $ids; do
+                count=$((count+1))
+                echo WINDOW_INDEX=$count
+                xdotool getwindowgeometry --shell "$id" 2>/dev/null || true
+                xdotool getwindowname "$id" 2>/dev/null | sed -E "s/.*/NAME=<redacted>/" || true
+                xprop -id "$id" WM_CLASS _NET_WM_NAME WM_NAME 2>/dev/null \
+                  | sed -E "s/(_NET_WM_NAME|WM_NAME)\(.*/\1=<redacted>/" || true
+              done
+              echo WECHAT_WINDOWS=$count
+            ' 2>&1
+          } > /tmp/runtime-cli-probe/x11.txt
+
       - name: Persist sanitized CLI summary
         if: always() && github.event_name == 'push'
         run: |
@@ -143,6 +176,11 @@ jobs:
             echo '## Runtime configuration hints'
             echo '```text'
             head -n 200 /tmp/runtime-cli-probe/runtime-config-hints.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## X11 capability'
+            echo '```text'
+            head -n 200 /tmp/runtime-cli-probe/x11.txt 2>/dev/null || true
             echo '```'
           } > docs/runtime-cli-probe-latest.md
           git config user.name 'github-actions[bot]'
