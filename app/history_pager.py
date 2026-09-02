@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, parse_qs, urlencode, urlsplit, urlunsplit
 from app.history_seed import HistorySeed
 from app.public_accounts import ArticleRecord, CHINA_TZ, normalize_article
 
-_CONTROL_KEYS = {"action", "offset", "count", "f", "is_ok", "scene"}
+_CONTROL_KEYS = {"action", "offset", "count", "f", "is_ok", "scene", "x5", "wxtoken"}
 
 
 class ProfileExtAuthError(ValueError):
@@ -42,6 +42,8 @@ def build_page_url(seed: HistorySeed, offset: int, count: int = 10) -> str:
             ("count", str(count)),
             ("is_ok", "1"),
             ("scene", "124"),
+            ("x5", "1"),
+            ("wxtoken", ""),
         ]
     )
     return urlunsplit(("https", "mp.weixin.qq.com", "/mp/profile_ext", urlencode(pairs), ""))
@@ -104,7 +106,8 @@ def _validate_profile_ext_ret(outer: dict[str, object]) -> None:
         raise ProfileExtResponseError("profile_ext_invalid_ret") from exc
     if ret == 0:
         return
-    if ret == -3:
+    errmsg = str(outer.get("errmsg") or "").strip().lower()
+    if ret == -3 or "session" in errmsg or "login" in errmsg or "auth" in errmsg:
         raise ProfileExtAuthError("profile_ext_login_required")
     raise ProfileExtResponseError("profile_ext_request_rejected")
 
