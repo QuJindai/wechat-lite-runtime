@@ -11,8 +11,10 @@ _MAX_ENTRIES = 500
 
 
 def _normalize_account_name(value: str) -> str:
+    if any(ord(char) < 32 for char in value):
+        raise ValueError("invalid_account_name")
     stripped = value.strip()
-    if not stripped or len(stripped) > 256 or any(ord(char) < 32 for char in stripped):
+    if not stripped or len(stripped) > 256:
         raise ValueError("invalid_account_name")
     normalized = unicodedata.normalize("NFKC", stripped)
     collapsed = " ".join(normalized.split()).casefold()
