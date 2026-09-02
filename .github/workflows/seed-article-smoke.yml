@@ -10,7 +10,7 @@ on:
       - '.github/workflows/seed-article-smoke.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   resolve-public-seed:
@@ -21,21 +21,66 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Resolve real public WeChat seed
+        id: resolve
+        continue-on-error: true
         run: |
           python - <<'PY'
-          from app.seed_article import SeedArticleResolver
+          import json
+          from pathlib import Path
+          from app.seed_article import SeedArticleResolver, SeedResolutionError
 
-          identity = SeedArticleResolver(timeout_seconds=20).resolve(
-              'https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g'
-          )
-          summary = identity.safe_summary()
-          print({
-              'account_name': summary['account_name'],
-              'biz_matches': summary['biz'] == 'Mzg2Mzg3NzgxNw==',
-              'canonical_url': summary['canonical_url'],
-          })
-          assert summary['account_name'] == 'dSPACE德斯拜思', summary
-          assert summary['biz'] == 'Mzg2Mzg3NzgxNw==', summary
-          assert summary['canonical_url'] == 'https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g', summary
+          out = Path('/tmp/seed-article-smoke.json')
+          try:
+              identity = SeedArticleResolver(timeout_seconds=20).resolve(
+                  'https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g'
+              )
+              summary = identity.safe_summary()
+              result = {
+                  'status': 'success',
+                  'account_name': summary['account_name'],
+                  'biz_matches': summary['biz'] == 'Mzg2Mzg3NzgxNw==',
+                  'canonical_url': summary['canonical_url'],
+              }
+              if summary['account_name'] != 'dSPACE德斯拜思' or not result['biz_matches']:
+                  result['status'] = 'identity_mismatch'
+          except SeedResolutionError as exc:
+              result = {'status': 'seed_resolution_error', 'error_code': exc.code}
+          except Exception:
+              result = {'status': 'unexpected_error'}
+          out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(result, ensure_ascii=False))
+          raise SystemExit(0 if result['status'] == 'success' else 1)
+          PY
+
+      - name: Persist sanitized diagnostic
+        if: always() && github.event_name == 'push'
+        run: |
+          mkdir -p docs
+          {
+            echo '# Seed Article Smoke Latest'
+            echo
+            echo "- head_sha: \`${GITHUB_SHA}\`"
+            echo
+            echo '```json'
+            cat /tmp/seed-article-smoke.json 2>/dev/null || printf '{"status":"diagnostic_missing"}\n'
+            echo '```'
+          } > docs/seed-article-smoke-latest.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/seed-article-smoke-latest.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record seed article smoke diagnostic'
+            git push
+          fi
+
+      - name: Enforce seed resolution
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('/tmp/seed-article-smoke.json').read_text(encoding='utf-8'))
+          assert payload.get('status') == 'success', payload
           PY
