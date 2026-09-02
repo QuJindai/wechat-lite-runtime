@@ -5,11 +5,12 @@ from collections.abc import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, bootstrap_public_account
 from app.config import Settings
 from app.history_seed import probe_history_seed_status
+from app.live_discovery import LiveDiscoveryService
 from app.providers import ProviderError, PublicAccountProvider
 from app.public_accounts import redact_sensitive_text
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
@@ -24,13 +25,20 @@ class BootstrapRequest(BaseModel):
     biz: str
 
 
+class DiscoverRequest(BaseModel):
+    account_name: str = Field(min_length=1, max_length=256)
+    biz: str = Field(min_length=1, max_length=256)
+    limit: int = Field(default=20, ge=1, le=100)
+
+
 def create_app(
     settings: Settings,
     tcp_probe: TcpProbe = probe_tcp,
     public_account_provider: PublicAccountProvider | None = None,
     account_bootstrapper: AccountBootstrapper | None = None,
+    live_discovery_service: LiveDiscoveryService | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.5.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.6.0")
     bearer = HTTPBearer(auto_error=False)
 
     if account_bootstrapper is None:
@@ -47,6 +55,8 @@ def create_app(
     else:
         active_bootstrapper = account_bootstrapper
 
+    active_live_discovery = live_discovery_service or LiveDiscoveryService(settings.state_dir)
+
     def require_control_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
@@ -59,6 +69,21 @@ def create_app(
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
         if not secrets.compare_digest(credentials.credentials, settings.control_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
+
+    def raise_provider_http_error(exc: ProviderError) -> None:
+        error_status = {
+            "LOGIN_REQUIRED": status.HTTP_409_CONFLICT,
+            "ACCOUNT_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+            "HISTORY_SURFACE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
+            "PAGINATION_INCOMPLETE": status.HTTP_502_BAD_GATEWAY,
+        }.get(exc.code, status.HTTP_502_BAD_GATEWAY)
+        raise HTTPException(
+            status_code=error_status,
+            detail={
+                "code": exc.code,
+                "message": redact_sensitive_text(str(exc)),
+            },
+        ) from exc
 
     @application.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -111,6 +136,23 @@ def create_app(
             ) from exc
         return result.safe_summary()
 
+    @application.post("/v1/public-accounts/discover", dependencies=[Depends(require_control_token)])
+    def public_account_discover(request: DiscoverRequest) -> dict[str, object]:
+        try:
+            result = active_live_discovery.recent_articles(
+                request.account_name,
+                request.biz,
+                request.limit,
+            )
+        except ProviderError as exc:
+            raise_provider_http_error(exc)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "INVALID_DISCOVERY_REQUEST"},
+            ) from exc
+        return result.to_dict()
+
     @application.get(
         "/v1/public-accounts/{account}/recent",
         dependencies=[Depends(require_control_token)],
@@ -130,19 +172,7 @@ def create_app(
         try:
             result = public_account_provider.recent_articles(account, limit)
         except ProviderError as exc:
-            error_status = {
-                "LOGIN_REQUIRED": status.HTTP_409_CONFLICT,
-                "ACCOUNT_NOT_FOUND": status.HTTP_404_NOT_FOUND,
-                "HISTORY_SURFACE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
-                "PAGINATION_INCOMPLETE": status.HTTP_502_BAD_GATEWAY,
-            }.get(exc.code, status.HTTP_502_BAD_GATEWAY)
-            raise HTTPException(
-                status_code=error_status,
-                detail={
-                    "code": exc.code,
-                    "message": redact_sensitive_text(str(exc)),
-                },
-            ) from exc
+            raise_provider_http_error(exc)
         return result.to_dict()
 
     return application
