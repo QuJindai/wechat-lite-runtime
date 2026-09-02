@@ -31,13 +31,17 @@ Status:
 
 Real logged-in Codespace evidence:
 
-- `.xwechat/radium/web` contains cookie-store, WebView-cache and `mp.weixin.qq.com` activity
+- `cookie_store`: candidates present
+- `mp_weixin_trace`: candidates present under `.xwechat/radium/web`
+- `webview_cache`: candidates present including `.xwechat/radium/web`
 - Chromium `Cookies` and `History` SQLite stores exist
 - `Local Storage/leveldb` exists
 - `multitab_<redacted>` is the high-value profile
 - no cookie/token value was returned
 
 This selected the authenticated WebView/History route and avoided unrelated chat databases.
+
+The end-to-end target remains the newest 20 public-account articles with verified timestamps, unique canonical URLs, account identity and freshness.
 
 ## V1 Phase C: authenticated History pagination
 
