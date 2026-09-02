@@ -47,3 +47,17 @@ The `quickstart=1` link resumes your most recent matching Codespace when availab
 No manual secret setup is required for V0. If `WECHAT_CONTROL_TOKEN` is not provided, the runtime creates a cryptographically random token at `state/.control-token` with mode `0600` and reuses it after Codespace stop/start.
 
 If you explicitly configure `WECHAT_CONTROL_TOKEN` as a Codespaces secret, that value takes precedence and no local token file is created.
+
+## V1 public-account discovery: safe probe
+
+V1 development lives on `feat/v1-public-account-discovery`. The first physical step intentionally does **not** read or export message bodies, cookies, browser session tokens, QR data, raw database rows or encryption keys. It only classifies candidate runtime artifacts and returns sanitized aggregate roots/counts.
+
+After switching the existing logged-in Codespace to the V1 branch, run:
+
+```bash
+bash scripts/probe-wechat-state.sh
+```
+
+The command self-heals the local control API, reads the private control token only inside the process, calls `127.0.0.1:8787/v1/wechat/probe`, and prints sanitized JSON. It does not print cookies, auth tokens, raw WeChat database contents, contacts or messages.
+
+The probe result is used to choose the concrete authenticated WebView/history extraction path. Real session-reading code is not enabled until the sanitized probe establishes which artifact classes are actually present.
