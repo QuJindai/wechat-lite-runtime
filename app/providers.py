@@ -5,6 +5,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from app.history_pager import build_page_url, parse_profile_ext_page
+from app.history_seed import locate_history_seed
 from app.public_accounts import DiscoveryResult, build_discovery_result, normalize_article
 
 
@@ -21,6 +23,79 @@ class PublicAccountProvider(Protocol):
         limit: int,
         since: datetime | None = None,
     ) -> DiscoveryResult: ...
+
+
+class HistoryTransport(Protocol):
+    def get(self, url: str) -> bytes: ...
+
+
+class AuthenticatedHistoryProvider:
+    def __init__(self, history_db: Path, transport: HistoryTransport) -> None:
+        self.history_db = Path(history_db)
+        self.transport = transport
+
+    def recent_articles(
+        self,
+        account: str,
+        limit: int,
+        since: datetime | None = None,
+    ) -> DiscoveryResult:
+        if limit < 1:
+            raise ValueError("limit_must_be_positive")
+
+        seed = locate_history_seed(self.history_db)
+        if seed is None:
+            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE")
+
+        offset = 0
+        page_size = min(10, max(1, limit))
+        records = []
+        max_pages = 100
+
+        for _ in range(max_pages):
+            private_url = build_page_url(seed, offset=offset, count=page_size)
+            try:
+                payload = self.transport.get(private_url)
+            except ProviderError:
+                raise
+            except Exception as exc:
+                raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_transport_failed") from exc
+
+            try:
+                page_records, can_continue = parse_profile_ext_page(payload, account)
+            except ValueError as exc:
+                raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_page_invalid") from exc
+
+            records.extend(page_records)
+            filtered = records
+            if since is not None:
+                filtered = [
+                    article
+                    for article in records
+                    if article.published_at is not None and article.published_at >= since
+                ]
+
+            result = build_discovery_result(
+                filtered,
+                requested_count=limit,
+                account_verified=True,
+                freshness_verified=True,
+                is_exhaustive_for_window=False,
+                pagination_cursor=(
+                    f"history:{seed.safe_summary()['seed_fingerprint']}:{offset + page_size}"
+                    if can_continue
+                    else None
+                ),
+                provider="authenticated_history",
+                verification="authenticated_history_seed",
+            )
+            if result.count_satisfied:
+                return result
+            if not can_continue:
+                raise ProviderError("PAGINATION_INCOMPLETE")
+            offset += page_size
+
+        raise ProviderError("PAGINATION_INCOMPLETE", "history_pagination_guard")
 
 
 class SyntheticHistoryProvider:
