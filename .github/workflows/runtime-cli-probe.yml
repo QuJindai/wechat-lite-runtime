@@ -149,13 +149,19 @@ jobs:
             docker exec "$cid" bash -lc '
               for desktop in /usr/share/applications/com.tencent.WeChat.desktop /usr/share/applications/WeChat.desktop; do
                 if [ -f "$desktop" ]; then
-                  echo DESKTOP_FILE=$desktop
+                  echo DESKTOP_DISCOVERED=$desktop
                   grep -E "^Name=" "$desktop" || true
                   grep -E "^Exec=" "$desktop" || true
                   grep -E "^MimeType=" "$desktop" || true
                 fi
               done
-              find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop" -print 2>/dev/null | sort -u
+              find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop" 2>/dev/null | sort -u | while IFS= read -r desktop; do
+                [ -n "$desktop" ] || continue
+                echo DESKTOP_DISCOVERED=$desktop
+                grep -E "^Name=" "$desktop" || true
+                grep -E "^Exec=" "$desktop" || true
+                grep -E "^MimeType=" "$desktop" || true
+              done
             ' 2>/dev/null || true
             echo '--- x-scheme-handler/weixin ---'
             docker exec "$cid" bash -lc 'command -v xdg-mime >/dev/null 2>&1 && xdg-mime query default x-scheme-handler/weixin || true' 2>/dev/null || true
