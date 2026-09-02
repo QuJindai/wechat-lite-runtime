@@ -8,12 +8,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
+from app.wechat_probe import probe_state
 
 TcpProbe = Callable[[str, int, float], bool]
 
 
 def create_app(settings: Settings, tcp_probe: TcpProbe = probe_tcp) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.1.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.2.0")
     bearer = HTTPBearer(auto_error=False)
 
     def require_control_token(
@@ -51,6 +52,10 @@ def create_app(settings: Settings, tcp_probe: TcpProbe = probe_tcp) -> FastAPI:
         return {
             "ui_url": build_codespace_port_url(settings.codespace_name, settings.wechat_port),
         }
+
+    @application.get("/v1/wechat/probe", dependencies=[Depends(require_control_token)])
+    def wechat_probe() -> dict[str, object]:
+        return probe_state(settings.state_dir)
 
     return application
 
