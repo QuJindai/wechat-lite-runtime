@@ -9,6 +9,7 @@ on:
       - '.devcontainer/docker-compose.yml'
       - 'scripts/wechat-launcher-service.py'
       - 'app/account_bootstrap.py'
+      - 'app/account_index.py'
       - 'app/credential_scanner.py'
       - 'app/history_pager.py'
       - 'app/history_seed.py'
@@ -56,6 +57,29 @@ jobs:
         run: |
           docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
             bash -lc 'cd /workspaces/wechat-lite-runtime && python -m pip install -q -r requirements.txt'
+
+      - name: Verify public-account index persists across workspace restart
+        run: |
+          docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
+            bash -lc 'cd /workspaces/wechat-lite-runtime && python - <<"PY"
+          from pathlib import Path
+          from app.account_index import PublicAccountIndex
+          state = Path("state")
+          index = PublicAccountIndex(state)
+          index.remember("SMOKE INDEX ACCOUNT", "SMOKE_INDEX_BIZ")
+          assert index.resolve("smoke index account") == "SMOKE_INDEX_BIZ"
+          path = state / ".public-account-index.json"
+          assert path.stat().st_mode & 0o777 == 0o600
+          PY'
+          docker compose -f .devcontainer/docker-compose.yml restart workspace
+          for i in $(seq 1 30); do
+            if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
+              bash -lc 'cd /workspaces/wechat-lite-runtime && python -c "from app.account_index import PublicAccountIndex; from pathlib import Path; assert PublicAccountIndex(Path(\"state\")).resolve(\"SMOKE INDEX ACCOUNT\") == \"SMOKE_INDEX_BIZ\""' 2>/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
 
       - name: Start default FastAPI wiring
         run: |
