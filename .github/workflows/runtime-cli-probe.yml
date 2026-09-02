@@ -147,14 +147,6 @@ jobs:
           {
             echo '--- desktop candidates ---'
             docker exec "$cid" bash -lc '
-              for desktop in /usr/share/applications/com.tencent.WeChat.desktop /usr/share/applications/WeChat.desktop; do
-                if [ -f "$desktop" ]; then
-                  echo DESKTOP_DISCOVERED=$desktop
-                  grep -E "^Name=" "$desktop" || true
-                  grep -E "^Exec=" "$desktop" || true
-                  grep -E "^MimeType=" "$desktop" || true
-                fi
-              done
               find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop" 2>/dev/null | sort -u | while IFS= read -r desktop; do
                 [ -n "$desktop" ] || continue
                 echo DESKTOP_DISCOVERED=$desktop
@@ -168,9 +160,35 @@ jobs:
             echo '--- registrations ---'
             docker exec "$cid" bash -lc 'grep -R -I -n -E "x-scheme-handler/weixin|weixin://|wxwork://" /usr/share/applications /opt/wechat 2>/dev/null | head -n 200' \
               | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' || true
-            echo '--- executable strings hints ---'
-            docker exec "$cid" bash -lc 'find /opt/wechat -maxdepth 3 -type f -size -10M 2>/dev/null -print0 | xargs -0 -r grep -I -n -E "weixin://|x-scheme-handler/weixin" 2>/dev/null | head -n 120' || true
           } > /tmp/runtime-cli-probe/url-handler.txt
+
+      - name: Invoke HTTPS public-account profile URL through Linux WeChat
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          target_url='https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=AUTOTEST_BIZ&scene=124#wechat_redirect'
+          before_windows="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
+          set +e
+          docker exec -e DISPLAY=:1 -e TARGET_URL="$target_url" "$cid" bash -lc 'timeout 12s /usr/bin/wechat "$TARGET_URL" >/tmp/url-invoke-command.log 2>&1'
+          invoke_exit=$?
+          set -e
+          sleep 6
+          after_windows="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
+          history_rows="$(docker exec "$cid" python3 -c 'import pathlib,sqlite3; total=0; root=pathlib.Path("/config/.xwechat/radium/web/profiles");
+for p in root.glob("*/History") if root.exists() else []:
+    try:
+        c=sqlite3.connect("file:"+str(p)+"?mode=ro",uri=True); total+=int(c.execute("SELECT count(*) FROM urls WHERE url LIKE ?",("%AUTOTEST_BIZ%",)).fetchone()[0]); c.close()
+    except Exception: pass
+print(total)' 2>/dev/null || echo 0)"
+          raw_marker_files="$(docker exec "$cid" bash -lc 'if [ -d /config/.xwechat/radium/web ]; then grep -R -a -l -F "AUTOTEST_BIZ" /config/.xwechat/radium/web 2>/dev/null | wc -l; else echo 0; fi' 2>/dev/null || echo 0)"
+          {
+            echo "URL_INVOKE_EXIT=$invoke_exit"
+            echo "WINDOWS_BEFORE=$before_windows"
+            echo "WINDOWS_AFTER=$after_windows"
+            echo "HISTORY_MARKER_ROWS=$history_rows"
+            echo "RAW_MARKER_FILES=$raw_marker_files"
+          } > /tmp/runtime-cli-probe/url-invocation.txt
 
       - name: Persist sanitized CLI summary
         if: always() && github.event_name == 'push'
@@ -219,6 +237,11 @@ jobs:
             echo '## URL handler capability'
             echo '```text'
             head -n 240 /tmp/runtime-cli-probe/url-handler.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## URL invocation capability'
+            echo '```text'
+            cat /tmp/runtime-cli-probe/url-invocation.txt 2>/dev/null || true
             echo '```'
           } > docs/runtime-cli-probe-latest.md
           git config user.name 'github-actions[bot]'
