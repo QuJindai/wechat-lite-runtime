@@ -97,6 +97,23 @@ def _candidate_context(candidate: CaptureCandidate) -> tuple[str, dict[str, str]
     return str(parsed.path), context
 
 
+def candidate_from_history_seed(seed: HistorySeed) -> CaptureCandidate:
+    parsed, query = _validate_history_endpoint(seed._raw_url)
+    fields: dict[str, str] = {}
+    for field_name, query_name in _FIELD_TO_QUERY.items():
+        values = query.get(query_name) or []
+        if values and values[0]:
+            fields[field_name] = values[0]
+    candidate = CaptureCandidate(
+        request_url=seed._raw_url,
+        fields=fields,
+        modified_at=float(seed.last_visit_time),
+        source_root="history_seed",
+    )
+    _candidate_context(candidate)
+    return candidate
+
+
 def history_seed_from_candidate(candidate: CaptureCandidate) -> HistorySeed:
     source_path, context = _candidate_context(candidate)
     if source_path == _ALLOWED_PATH:
