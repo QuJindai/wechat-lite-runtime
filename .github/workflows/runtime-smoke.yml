@@ -1,6 +1,7 @@
 name: Runtime Smoke
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - feat/v0-codespace-runtime
@@ -8,17 +9,36 @@ on:
       - '.devcontainer/**'
       - '.github/workflows/runtime-smoke.yml'
 
+permissions:
+  contents: write
+
 jobs:
   compose-runtime:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+
       - name: Validate Compose model
-        run: docker compose -f .devcontainer/docker-compose.yml config >/dev/null
+        id: validate
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker compose -f .devcontainer/docker-compose.yml config >/tmp/compose-config.out 2>/tmp/compose-config.err
+
       - name: Start WeChat and workspace services
-        run: docker compose -f .devcontainer/docker-compose.yml up -d wechat workspace
+        id: start
+        if: steps.validate.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker compose -f .devcontainer/docker-compose.yml up -d wechat workspace \
+            >/tmp/compose-start.out 2>/tmp/compose-start.err
+
       - name: Verify WeChat port is visible from workspace localhost
+        id: probe
+        if: steps.start.outcome == 'success'
+        continue-on-error: true
         run: |
           for i in $(seq 1 90); do
             if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
@@ -28,8 +48,62 @@ jobs:
             fi
             sleep 2
           done
-          docker compose -f .devcontainer/docker-compose.yml logs --no-color wechat
           exit 1
+
+      - name: Write smoke diagnostic
+        if: always()
+        env:
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          START_OUTCOME: ${{ steps.start.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        run: |
+          mkdir -p docs
+          {
+            echo '# Runtime Smoke Latest'
+            echo
+            echo "- head_sha: \`${GITHUB_SHA}\`"
+            echo "- validate_compose: \`${VALIDATE_OUTCOME}\`"
+            echo "- start_services: \`${START_OUTCOME}\`"
+            echo "- probe_workspace_localhost_3001: \`${PROBE_OUTCOME}\`"
+            echo
+            echo '## Compose validation stderr'
+            echo '```text'
+            tail -n 40 /tmp/compose-config.err 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Compose start stderr'
+            echo '```text'
+            tail -n 60 /tmp/compose-start.err 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Container state'
+            echo '```text'
+            docker compose -f .devcontainer/docker-compose.yml ps 2>&1 || true
+            echo '```'
+          } > docs/runtime-smoke-latest.md
+
+      - name: Persist smoke diagnostic
+        if: always() && github.event_name == 'push'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/runtime-smoke-latest.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record runtime smoke diagnostic'
+            git push
+          fi
+
       - name: Cleanup
         if: always()
-        run: docker compose -f .devcontainer/docker-compose.yml down -v
+        run: docker compose -f .devcontainer/docker-compose.yml down -v || true
+
+      - name: Enforce smoke result
+        if: always()
+        env:
+          VALIDATE_OUTCOME: ${{ steps.validate.outcome }}
+          START_OUTCOME: ${{ steps.start.outcome }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        run: |
+          test "$VALIDATE_OUTCOME" = success
+          test "$START_OUTCOME" = success
+          test "$PROBE_OUTCOME" = success
