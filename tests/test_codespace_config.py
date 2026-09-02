@@ -17,7 +17,7 @@ def load_yaml(path: str):
 def test_wechat_service_contract():
     compose = load_yaml(".devcontainer/docker-compose.yml")
     wechat = compose["services"]["wechat"]
-    assert "wechat-selkies:minimal" in wechat["image"]
+    assert wechat["image"] == "ghcr.io/nickrunning/wechat-selkies:0.0.16"
     assert "../state:/config" in wechat["volumes"]
     assert str(wechat["environment"]["ENABLE_WECHAT_AUTO_LOGIN"]).lower() == "true"
     assert str(wechat["environment"]["AUTO_START_WECHAT"]).lower() == "true"
@@ -42,7 +42,7 @@ def test_readme_documents_persistence_and_physical_gate():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "state/ -> /config" in readme
     assert "scan -> stop -> start -> verify" in readme
-    assert "ghcr.io/nickrunning/wechat-selkies:minimal" in readme
+    assert "ghcr.io/nickrunning/wechat-selkies:0.0.16" in readme
 
 
 def test_development_doc_keeps_main_merge_blocked_until_phone_gate():
