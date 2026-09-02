@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, bootstrap_public_account
 from app.config import Settings
 from app.history_seed import probe_history_seed_status
+from app.launcher_bridge import HttpWechatURLLauncher
 from app.live_discovery import LiveDiscoveryService
 from app.providers import ProviderError, PublicAccountProvider
 from app.public_accounts import redact_sensitive_text
@@ -38,24 +39,31 @@ def create_app(
     account_bootstrapper: AccountBootstrapper | None = None,
     live_discovery_service: LiveDiscoveryService | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.6.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.7.0")
     bearer = HTTPBearer(auto_error=False)
 
-    if account_bootstrapper is None:
-        launcher = SubprocessWechatURLLauncher()
+    bridge_launcher = (
+        HttpWechatURLLauncher(settings.control_token)
+        if settings.control_token
+        else SubprocessWechatURLLauncher()
+    )
 
+    if account_bootstrapper is None:
         def configured_bootstrapper(biz: str) -> BootstrapResult:
             return bootstrap_public_account(
                 biz,
                 state_dir=settings.state_dir,
-                launcher=launcher,
+                launcher=bridge_launcher,
             )
 
         active_bootstrapper: AccountBootstrapper = configured_bootstrapper
     else:
         active_bootstrapper = account_bootstrapper
 
-    active_live_discovery = live_discovery_service or LiveDiscoveryService(settings.state_dir)
+    active_live_discovery = live_discovery_service or LiveDiscoveryService(
+        settings.state_dir,
+        launcher=bridge_launcher,
+    )
 
     def require_control_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
