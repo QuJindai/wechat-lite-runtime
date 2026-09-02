@@ -116,7 +116,12 @@ def _urls_in_file(path: Path) -> Iterator[str]:
         return
 
 
-def _candidate_from_url(raw_url: str, target_biz: str, modified_at: float, root_label: str) -> CaptureCandidate | None:
+def _candidate_from_url(
+    raw_url: str,
+    target_biz: str | None,
+    modified_at: float,
+    root_label: str,
+) -> CaptureCandidate | None:
     value = html.unescape(raw_url)
     for _ in range(3):
         decoded = unquote(value)
@@ -132,7 +137,9 @@ def _candidate_from_url(raw_url: str, target_biz: str, modified_at: float, root_
 
     query = parse_qs(parsed.query, keep_blank_values=True)
     biz = (query.get("__biz") or [""])[0]
-    if biz != target_biz:
+    if not biz:
+        return None
+    if target_biz is not None and biz != target_biz:
         return None
 
     fields: dict[str, str] = {"biz": biz}
@@ -231,7 +238,7 @@ def _recent_files(
 
 
 def scan_credentials(
-    target_biz: str,
+    target_biz: str | None,
     *,
     roots: list[Path],
     since_minutes: int = 60,
@@ -240,7 +247,7 @@ def scan_credentials(
     max_directories: int = 20_000,
     max_scan_seconds: float = 20.0,
 ) -> ScanReport:
-    if not target_biz or len(target_biz) > 256:
+    if target_biz is not None and (not target_biz or len(target_biz) > 256):
         raise ValueError("invalid_target_biz")
     if not 1 <= since_minutes <= 1440:
         raise ValueError("since_minutes_out_of_range")
