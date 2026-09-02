@@ -22,8 +22,9 @@ def test_readme_documents_phase_b_probe_command_and_security_boundary():
     assert "does not return cookie or token values" in readme
 
 
-def test_development_doc_marks_phase_b_software_and_physical_gate():
+def test_development_doc_records_phase_b_physical_probe_passed():
     development = (ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
-    assert "V1_PHASE_B_SOFTWARE" in development
-    assert "V1_WEBVIEW_CONTAINER_PROBE = PENDING_PHYSICAL" in development
-    assert "probe-wechat-webview.sh" in development
+    assert "V1_PHASE_B_SOFTWARE = PASS" in development
+    assert "V1_WEBVIEW_CONTAINER_PROBE = PASS" in development
+    assert "multitab_<redacted>" in development
+    assert "Local Storage/leveldb" in development
