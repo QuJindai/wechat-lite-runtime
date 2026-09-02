@@ -5,7 +5,9 @@ from collections.abc import Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 
+from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, bootstrap_public_account
 from app.config import Settings
 from app.history_seed import probe_history_seed_status
 from app.providers import ProviderError, PublicAccountProvider
@@ -15,15 +17,35 @@ from app.wechat_probe import probe_state
 from app.webview_probe import probe_webview_state
 
 TcpProbe = Callable[[str, int, float], bool]
+AccountBootstrapper = Callable[[str], BootstrapResult]
+
+
+class BootstrapRequest(BaseModel):
+    biz: str
 
 
 def create_app(
     settings: Settings,
     tcp_probe: TcpProbe = probe_tcp,
     public_account_provider: PublicAccountProvider | None = None,
+    account_bootstrapper: AccountBootstrapper | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.4.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.5.0")
     bearer = HTTPBearer(auto_error=False)
+
+    if account_bootstrapper is None:
+        launcher = SubprocessWechatURLLauncher()
+
+        def configured_bootstrapper(biz: str) -> BootstrapResult:
+            return bootstrap_public_account(
+                biz,
+                state_dir=settings.state_dir,
+                launcher=launcher,
+            )
+
+        active_bootstrapper: AccountBootstrapper = configured_bootstrapper
+    else:
+        active_bootstrapper = account_bootstrapper
 
     def require_control_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
@@ -72,6 +94,22 @@ def create_app(
     @application.get("/v1/wechat/history-seed-status", dependencies=[Depends(require_control_token)])
     def wechat_history_seed_status() -> dict[str, object]:
         return probe_history_seed_status(settings.state_dir)
+
+    @application.post("/v1/public-accounts/bootstrap", dependencies=[Depends(require_control_token)])
+    def public_account_bootstrap(request: BootstrapRequest) -> dict[str, object]:
+        try:
+            result = active_bootstrapper(request.biz)
+        except ValueError as exc:
+            if str(exc) == "invalid_target_biz":
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={"code": "INVALID_BIZ"},
+                ) from exc
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "INVALID_BOOTSTRAP_REQUEST"},
+            ) from exc
+        return result.safe_summary()
 
     @application.get(
         "/v1/public-accounts/{account}/recent",
