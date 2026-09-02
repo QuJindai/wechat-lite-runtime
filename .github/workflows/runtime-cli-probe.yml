@@ -71,17 +71,7 @@ jobs:
             printf 'candidate_ports=9222,9223,9229,9333,9444\n'
             for port in 9222 9223 9229 9333 9444; do
               for endpoint in /json/version /json/list; do
-                body="$(docker exec "$cid" python3 - "$port" "$endpoint" 2>/dev/null <<'PY' || true
-import sys, urllib.request
-port, endpoint = sys.argv[1], sys.argv[2]
-try:
-    with urllib.request.urlopen(f'http://127.0.0.1:{port}{endpoint}', timeout=1) as response:
-        data = response.read(4096).decode('utf-8', errors='replace')
-        print(data)
-except Exception:
-    pass
-PY
-)"
+                body="$(docker exec "$cid" python3 -c "import urllib.request,sys; print(urllib.request.urlopen('http://127.0.0.1:'+sys.argv[1]+sys.argv[2], timeout=1).read(4096).decode('utf-8','replace'))" "$port" "$endpoint" 2>/dev/null || true)"
                 if [ -n "$body" ]; then
                   printf 'CDP_HIT port=%s endpoint=%s\n' "$port" "$endpoint"
                   printf '%s\n' "$body" \
