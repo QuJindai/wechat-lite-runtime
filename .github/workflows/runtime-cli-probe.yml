@@ -43,103 +43,7 @@ jobs:
           echo 'port_3001=not_ready' >> /tmp/runtime-cli-probe/context.txt
           exit 1
 
-      - name: Probe Radium and browser process arguments
-        if: always()
-        run: |
-          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
-          test -n "$cid" || exit 0
-          docker exec "$cid" bash -lc 'ps -eo pid,args 2>/dev/null || ps aux' 2>/dev/null \
-            | grep -Ei 'Radium|WMPF|WeChatAppEx|chrome|chromium|cef' \
-            | sed -E 's#(--user-data-dir=)[^ ]+#\1<redacted>#g; s#(--profile-directory=)[^ ]+#\1<redacted>#g; s#(/config/)[^ ]+#\1<redacted>#g' \
-            > /tmp/runtime-cli-probe/processes.txt || true
-
-      - name: Probe listening localhost ports
-        if: always()
-        run: |
-          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
-          test -n "$cid" || exit 0
-          docker exec "$cid" bash -lc 'ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6 2>/dev/null || true' \
-            | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' \
-            > /tmp/runtime-cli-probe/listeners.txt || true
-
-      - name: Probe Chromium DevTools HTTP endpoints
-        if: always()
-        run: |
-          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
-          test -n "$cid" || exit 0
-          {
-            printf 'candidate_ports=9222,9223,9229,9333,9444\n'
-            for port in 9222 9223 9229 9333 9444; do
-              for endpoint in /json/version /json/list; do
-                body="$(docker exec "$cid" python3 -c "import urllib.request,sys; print(urllib.request.urlopen('http://127.0.0.1:'+sys.argv[1]+sys.argv[2], timeout=1).read(4096).decode('utf-8','replace'))" "$port" "$endpoint" 2>/dev/null || true)"
-                if [ -n "$body" ]; then
-                  printf 'CDP_HIT port=%s endpoint=%s\n' "$port" "$endpoint"
-                  printf '%s\n' "$body" | sed -E 's#(webSocketDebuggerUrl"[[:space:]]*:[[:space:]]*")[^"]+#\1<redacted>#g'
-                fi
-              done
-            done
-          } > /tmp/runtime-cli-probe/devtools.txt
-
-      - name: Identify port 8082 owner and HTTP behavior
-        if: always()
-        run: |
-          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
-          test -n "$cid" || exit 0
-          {
-            echo 'base=http://127.0.0.1:8082'
-            echo '--- ownership ---'
-            docker exec "$cid" bash -lc 'if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:8082 -sTCP:LISTEN; elif command -v fuser >/dev/null 2>&1; then fuser -n tcp 8082 -v; else ps -eo pid,args | grep -E "8082|selkies|webrtc|websockify|python|nginx" | grep -v grep; fi' 2>&1 || true
-            echo '--- http ---'
-            for endpoint in / /json/version /json/list /health /metrics; do
-              printf 'ENDPOINT %s\n' "$endpoint"
-              docker exec "$cid" python3 -c "import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8082'+sys.argv[1], timeout=2); print('status='+str(r.status)); print(r.read(4096).decode('utf-8','replace'))" "$endpoint" 2>/dev/null \
-                | sed -E 's#(webSocketDebuggerUrl"[[:space:]]*:[[:space:]]*")[^"]+#\1<redacted>#g' || true
-            done
-          } > /tmp/runtime-cli-probe/port-8082.txt
-
-      - name: Probe runtime text configuration hints
-        if: always()
-        run: |
-          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
-          test -n "$cid" || exit 0
-          docker exec "$cid" bash -lc 'find /opt/wechat /etc /usr/local/bin -type f -size -2M 2>/dev/null -print0 | xargs -0 -r grep -I -nE "remote-debugging|8082" 2>/dev/null | head -n 200' \
-            | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' \
-            > /tmp/runtime-cli-probe/runtime-config-hints.txt || true
-
-      - name: Probe X11 controller capability and WeChat window metadata
-        if: always()
-        run: |
-          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
-          test -n "$cid" || exit 0
-          {
-            echo 'DISPLAY=:1'
-            echo '--- commands ---'
-            for command_name in xdotool xprop xclip; do
-              printf '%s=' "$command_name"
-              docker exec "$cid" bash -lc "command -v $command_name 2>/dev/null || true"
-            done
-            echo '--- visible wechat windows ---'
-            docker exec "$cid" bash -lc '
-              export DISPLAY=:1
-              ids="$(xdotool search --onlyvisible --class wechat 2>/dev/null || true)"
-              if [ -z "$ids" ]; then
-                echo WECHAT_WINDOWS=0
-                exit 0
-              fi
-              count=0
-              for id in $ids; do
-                count=$((count+1))
-                echo WINDOW_INDEX=$count
-                xdotool getwindowgeometry --shell "$id" 2>/dev/null || true
-                xdotool getwindowname "$id" 2>/dev/null | sed -E "s/.*/NAME=<redacted>/" || true
-                xprop -id "$id" WM_CLASS _NET_WM_NAME WM_NAME 2>/dev/null \
-                  | sed -E "s/(_NET_WM_NAME|WM_NAME)\(.*/\1=<redacted>/" || true
-              done
-              echo WECHAT_WINDOWS=$count
-            ' 2>&1
-          } > /tmp/runtime-cli-probe/x11.txt
-
-      - name: Probe Linux WeChat URL handler and deep-link registration
+      - name: Inspect Linux WeChat desktop URL handling
         if: always()
         run: |
           cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
@@ -157,8 +61,8 @@ jobs:
             ' 2>/dev/null || true
             echo '--- x-scheme-handler/weixin ---'
             docker exec "$cid" bash -lc 'command -v xdg-mime >/dev/null 2>&1 && xdg-mime query default x-scheme-handler/weixin || true' 2>/dev/null || true
-            echo '--- registrations ---'
-            docker exec "$cid" bash -lc 'grep -R -I -n -E "x-scheme-handler/weixin|weixin://|wxwork://" /usr/share/applications /opt/wechat 2>/dev/null | head -n 200' \
+            echo '--- textual registrations ---'
+            docker exec "$cid" bash -lc 'grep -R -I -n -E "x-scheme-handler/weixin|weixin://|wxwork://" /usr/share/applications /opt/wechat 2>/dev/null | head -n 120' \
               | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' || true
           } > /tmp/runtime-cli-probe/url-handler.txt
 
@@ -175,12 +79,14 @@ jobs:
           set -e
           sleep 6
           after_windows="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
-          history_rows="$(docker exec "$cid" python3 -c 'import pathlib,sqlite3; total=0; root=pathlib.Path("/config/.xwechat/radium/web/profiles");
-for p in root.glob("*/History") if root.exists() else []:
-    try:
-        c=sqlite3.connect("file:"+str(p)+"?mode=ro",uri=True); total+=int(c.execute("SELECT count(*) FROM urls WHERE url LIKE ?",("%AUTOTEST_BIZ%",)).fetchone()[0]); c.close()
-    except Exception: pass
-print(total)' 2>/dev/null || echo 0)"
+
+          history_rows=0
+          while IFS= read -r history; do
+            [ -n "$history" ] || continue
+            count="$(docker exec "$cid" python3 -c 'import sqlite3,sys; c=sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True); print(int(c.execute("SELECT count(*) FROM urls WHERE url LIKE ?",("%AUTOTEST_BIZ%",)).fetchone()[0])); c.close()' "$history" 2>/dev/null || echo 0)"
+            history_rows=$((history_rows + count))
+          done < <(docker exec "$cid" find /config/.xwechat/radium/web/profiles -maxdepth 2 -type f -name History 2>/dev/null || true)
+
           raw_marker_files="$(docker exec "$cid" bash -lc 'if [ -d /config/.xwechat/radium/web ]; then grep -R -a -l -F "AUTOTEST_BIZ" /config/.xwechat/radium/web 2>/dev/null | wc -l; else echo 0; fi' 2>/dev/null || echo 0)"
           {
             echo "URL_INVOKE_EXIT=$invoke_exit"
@@ -204,39 +110,9 @@ print(total)' 2>/dev/null || echo 0)"
             cat /tmp/runtime-cli-probe/context.txt 2>/dev/null || true
             echo '```'
             echo
-            echo '## Radium / browser processes'
-            echo '```text'
-            head -n 120 /tmp/runtime-cli-probe/processes.txt 2>/dev/null || true
-            echo '```'
-            echo
-            echo '## Listening ports'
-            echo '```text'
-            head -n 120 /tmp/runtime-cli-probe/listeners.txt 2>/dev/null || true
-            echo '```'
-            echo
-            echo '## DevTools probe'
-            echo '```text'
-            cat /tmp/runtime-cli-probe/devtools.txt 2>/dev/null || true
-            echo '```'
-            echo
-            echo '## Port 8082 probe'
-            echo '```text'
-            head -n 160 /tmp/runtime-cli-probe/port-8082.txt 2>/dev/null || true
-            echo '```'
-            echo
-            echo '## Runtime configuration hints'
-            echo '```text'
-            head -n 200 /tmp/runtime-cli-probe/runtime-config-hints.txt 2>/dev/null || true
-            echo '```'
-            echo
-            echo '## X11 capability'
-            echo '```text'
-            head -n 200 /tmp/runtime-cli-probe/x11.txt 2>/dev/null || true
-            echo '```'
-            echo
             echo '## URL handler capability'
             echo '```text'
-            head -n 240 /tmp/runtime-cli-probe/url-handler.txt 2>/dev/null || true
+            cat /tmp/runtime-cli-probe/url-handler.txt 2>/dev/null || true
             echo '```'
             echo
             echo '## URL invocation capability'
