@@ -44,3 +44,18 @@ def test_runtime_cli_probe_identifies_port_8082_and_checks_for_devtools_configur
     assert "/opt/wechat" in workflow
     assert "runtime-cli-probe/port-8082.txt" in workflow
     assert "runtime-cli-probe/runtime-config-hints.txt" in workflow
+
+
+def test_runtime_cli_probe_verifies_x11_controller_dependencies_and_wechat_window_metadata():
+    workflow = (ROOT / ".github/workflows/runtime-cli-probe.yml").read_text(encoding="utf-8")
+
+    assert "xdotool" in workflow
+    assert "xprop" in workflow
+    assert "xclip" in workflow
+    assert "DISPLAY=:1" in workflow
+    assert "search --onlyvisible --class wechat" in workflow
+    assert "getwindowgeometry --shell" in workflow
+    assert "WM_CLASS" in workflow
+    assert "_NET_WM_NAME" in workflow
+    assert "runtime-cli-probe/x11.txt" in workflow
+    assert "## X11 capability" in workflow
