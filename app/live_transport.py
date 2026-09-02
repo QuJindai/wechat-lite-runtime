@@ -142,17 +142,7 @@ def _validate_request_context(candidate: CaptureCandidate, url: str) -> None:
 
 class _RestrictedRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
-        try:
-            parsed = urlsplit(newurl)
-        except ValueError:
-            return None
-        if (
-            parsed.scheme != _ALLOWED_SCHEME
-            or parsed.hostname != _ALLOWED_HOST
-            or parsed.path != _ALLOWED_PATH
-        ):
-            return None
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        return None
 
 
 _DEFAULT_OPENER = urllib.request.build_opener(_RestrictedRedirectHandler())
@@ -213,6 +203,8 @@ class UrllibHistoryTransport:
             if status_code in {401, 403}:
                 raise ProviderError("LOGIN_REQUIRED", "history_auth_rejected")
             final_url = response.geturl()
+            if final_url != request.full_url:
+                raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_redirect_not_allowed")
             parsed = urlsplit(final_url)
             if (
                 parsed.scheme != _ALLOWED_SCHEME

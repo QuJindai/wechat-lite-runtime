@@ -1,11 +1,16 @@
 import io
+import urllib.request
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
 from app.credential_scanner import CaptureCandidate
-from app.live_transport import UrllibHistoryTransport, history_seed_from_candidate
+from app.live_transport import (
+    UrllibHistoryTransport,
+    _RestrictedRedirectHandler,
+    history_seed_from_candidate,
+)
 from app.providers import HistoryPageResponse, ProviderError
 
 
@@ -139,3 +144,38 @@ def test_transport_rejects_cross_origin_final_url_and_oversized_payload():
     with pytest.raises(ProviderError) as exc2:
         large_transport.get(target)
     assert exc2.value.code == "HISTORY_SURFACE_UNAVAILABLE"
+
+
+def test_authenticated_redirect_handler_rejects_even_same_origin_redirect():
+    handler = _RestrictedRedirectHandler()
+    request = urllib.request.Request(
+        "https://mp.weixin.qq.com/mp/profile_ext?action=getmsg&offset=0"
+    )
+
+    redirected = handler.redirect_request(
+        request,
+        None,
+        302,
+        "Found",
+        {},
+        "https://mp.weixin.qq.com/mp/profile_ext?action=getmsg&offset=10",
+    )
+
+    assert redirected is None
+
+
+def test_transport_rejects_same_origin_final_url_change_without_echoing_url():
+    target = history_seed_from_candidate(candidate())._raw_url
+    redirected = target.replace("offset=0", "offset=10")
+    transport = UrllibHistoryTransport(
+        candidate(),
+        opener=lambda request, timeout: FakeResponse(b'{"ret":0}', redirected),
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        transport.get(target)
+
+    assert exc.value.code == "HISTORY_SURFACE_UNAVAILABLE"
+    assert str(exc.value) == "history_redirect_not_allowed"
+    for secret in ["KEY_SECRET", "PASS_SECRET", redirected]:
+        assert secret not in repr(exc.value)
