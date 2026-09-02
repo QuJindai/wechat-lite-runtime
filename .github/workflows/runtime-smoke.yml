@@ -1,0 +1,35 @@
+name: Runtime Smoke
+
+on:
+  push:
+    branches:
+      - feat/v0-codespace-runtime
+    paths:
+      - '.devcontainer/**'
+      - '.github/workflows/runtime-smoke.yml'
+
+jobs:
+  compose-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose model
+        run: docker compose -f .devcontainer/docker-compose.yml config >/dev/null
+      - name: Start WeChat and workspace services
+        run: docker compose -f .devcontainer/docker-compose.yml up -d wechat workspace
+      - name: Verify WeChat port is visible from workspace localhost
+        run: |
+          for i in $(seq 1 90); do
+            if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
+              bash -lc 'timeout 1 bash -c "</dev/tcp/127.0.0.1/3001"' 2>/dev/null; then
+              echo "WeChat port 3001 is reachable from workspace localhost"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f .devcontainer/docker-compose.yml logs --no-color wechat
+          exit 1
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .devcontainer/docker-compose.yml down -v
