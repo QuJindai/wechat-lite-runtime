@@ -1,6 +1,6 @@
 # Runtime CLI Probe Latest
 
-- head_sha: `46dabcc31ff70c3d0aee9315073785d2aa698330`
+- head_sha: `6a862081fab3e462c146b6c31bc2e1d633c1bd77`
 
 ## Context
 ```text
@@ -11,23 +11,23 @@ port_3001=ready
 
 ## Radium / browser processes
 ```text
-    512 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --log-level=2 --lang=zh-CN --wechat-files-path=/config/<redacted> --product-id=1002 --wechat-sub-user-agent=MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090a13) UnifiedPCLinuxWechat(0xf2741108) --web-translate --client_version=4067692808 --wmpf_root_dir=/config/<redacted> --enable-applet-v3 --wmpf-drm-plugin-path --no-preload --mojo-platform-channel-handle=3
-    519 /opt/wechat/RadiumWMPF/runtime/crashpad_handler --no-rate-limit --database=/config/<redacted> --annotation=ext_info={"app_call_name":"WeChatAppEx","app_name":"WeChatAppEx","app_path":"/opt/wechat/RadiumWMPF/runtime/WeChatAppEx","crash_notify":"0","main_thread_id":"512","module_name":"XWeb_linux","modules_dir":"/opt/wechat/RadiumWMPF/runtime","product":"WeChatAppEx","report_type":"9999","restart_app_cmd":"/opt/wechat/RadiumWMPF/runtime/WeChatAppEx --log-level=2 --lang=zh-CN --wechat-files-path=/config/<redacted> --product-id=1002 --wechat-sub-user-agent=MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090a13) UnifiedPCLinuxWechat(0xf2741108) --web-translate --client_version=4067692808 --wmpf_root_dir=/config/<redacted> --enable-applet-v3 --wmpf-drm-plugin-path --no-preload --mojo-platform-channel-handle=3 --disable-notifications --enable-crash-reporter --enable-features=,OverlayScrollbar,XWorker,NetworkServiceMemoryCache --disable-features=DigitalGoodsApi,NotificationTriggers,PeriodicBackgroundSync,BackForwardCache,TFLiteLanguageDetectionEnabled,WebOTP,HardwareMediaKeyHandling,AudioServiceOutOfProcess,Vulkan,AutoupgradeMixedContent --wmpf_root_dir=/config/<redacted> --annotation=product=WeChatAppEx --initial-client-fd=103 --shared-client-connection
-    524 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=zygote --no-zygote-sandbox --no-sandbox --log-level=2 --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=519 --product-id=1002
-    525 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=zygote --no-sandbox --log-level=2 --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=519 --product-id=1002
-    555 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=utility --utility-sub-type=network.mojom.NetworkService --lang=zh-CN --service-sandbox-type=none --no-sandbox --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=519 --product-id=1002 --disable-mojo-broker --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,17644123297838335459,13323819865736434815,262144 --enable-features=NetworkServiceMemoryCache,OverlayScrollbar,XWorker --disable-features=AudioServiceOutOfProcess,AutoupgradeMixedContent,BackForwardCache,DigitalGoodsApi,HardwareMediaKeyHandling,NotificationTriggers,PeriodicBackgroundSync,TFLiteLanguageDetectionEnabled,Vulkan,WebOTP --variations-seed-version --log-level=2
-    588 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=gpu-process --no-sandbox --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=519 --product-id=1002 --gpu-preferences=WAAAAAAAAAAgAAAEAAAAAAAAAAAAAAAAAABgAAAAAAA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAGAAAAAAAAAAYAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --use-gl=angle --use-angle=swiftshader-webgl --disable-mojo-broker --shared-files --field-trial-handle=3,i,17644123297838335459,13323819865736434815,262144 --enable-features=NetworkServiceMemoryCache,OverlayScrollbar,XWorker --disable-features=AudioServiceOutOfProcess,AutoupgradeMixedContent,BackForwardCache,DigitalGoodsApi,HardwareMediaKeyHandling,NotificationTriggers,PeriodicBackgroundSync,TFLiteLanguageDetectionEnabled,Vulkan,WebOTP --variations-seed-version --log-level=2
+    500 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --log-level=2 --lang=zh-CN --wechat-files-path=/config/<redacted> --product-id=1002 --wechat-sub-user-agent=MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090a13) UnifiedPCLinuxWechat(0xf2741108) --web-translate --client_version=4067692808 --wmpf_root_dir=/config/<redacted> --enable-applet-v3 --wmpf-drm-plugin-path --no-preload --mojo-platform-channel-handle=3
+    512 /opt/wechat/RadiumWMPF/runtime/crashpad_handler --no-rate-limit --database=/config/<redacted> --annotation=ext_info={"app_call_name":"WeChatAppEx","app_name":"WeChatAppEx","app_path":"/opt/wechat/RadiumWMPF/runtime/WeChatAppEx","crash_notify":"0","main_thread_id":"500","module_name":"XWeb_linux","modules_dir":"/opt/wechat/RadiumWMPF/runtime","product":"WeChatAppEx","report_type":"9999","restart_app_cmd":"/opt/wechat/RadiumWMPF/runtime/WeChatAppEx --log-level=2 --lang=zh-CN --wechat-files-path=/config/<redacted> --product-id=1002 --wechat-sub-user-agent=MicroMessenger/7.0.20.1781(0x6700143B) WindowsWechat(0x63090a13) UnifiedPCLinuxWechat(0xf2741108) --web-translate --client_version=4067692808 --wmpf_root_dir=/config/<redacted> --enable-applet-v3 --wmpf-drm-plugin-path --no-preload --mojo-platform-channel-handle=3 --disable-notifications --enable-crash-reporter --enable-features=,OverlayScrollbar,XWorker,NetworkServiceMemoryCache --disable-features=DigitalGoodsApi,NotificationTriggers,PeriodicBackgroundSync,BackForwardCache,TFLiteLanguageDetectionEnabled,WebOTP,HardwareMediaKeyHandling,AudioServiceOutOfProcess,Vulkan,AutoupgradeMixedContent --wmpf_root_dir=/config/<redacted> --annotation=product=WeChatAppEx --initial-client-fd=103 --shared-client-connection
+    517 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=zygote --no-zygote-sandbox --no-sandbox --log-level=2 --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=512 --product-id=1002
+    518 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=zygote --no-sandbox --log-level=2 --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=512 --product-id=1002
+    554 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=utility --utility-sub-type=network.mojom.NetworkService --lang=zh-CN --service-sandbox-type=none --no-sandbox --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=512 --product-id=1002 --disable-mojo-broker --shared-files=v8_context_snapshot_data:100 --field-trial-handle=3,i,9292622162789373970,4834048612508924058,262144 --enable-features=NetworkServiceMemoryCache,OverlayScrollbar,XWorker --disable-features=AudioServiceOutOfProcess,AutoupgradeMixedContent,BackForwardCache,DigitalGoodsApi,HardwareMediaKeyHandling,NotificationTriggers,PeriodicBackgroundSync,TFLiteLanguageDetectionEnabled,Vulkan,WebOTP --variations-seed-version --log-level=2
+    589 /opt/wechat/RadiumWMPF/runtime/WeChatAppEx --type=gpu-process --no-sandbox --client_version=4067692808 --enable-crash-reporter --wmpf_root_dir=/config/<redacted> --crashpad-handler-pid=512 --product-id=1002 --gpu-preferences=WAAAAAAAAAAgAAAEAAAAAAAAAAAAAAAAAABgAAAAAAA4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAGAAAAAAAAAAYAAAAAAAAAAgAAAAAAAAACAAAAAAAAAAIAAAAAAAAAA== --use-gl=angle --use-angle=swiftshader-webgl --disable-mojo-broker --shared-files --field-trial-handle=3,i,9292622162789373970,4834048612508924058,262144 --enable-features=NetworkServiceMemoryCache,OverlayScrollbar,XWorker --disable-features=AudioServiceOutOfProcess,AutoupgradeMixedContent,BackForwardCache,DigitalGoodsApi,HardwareMediaKeyHandling,NotificationTriggers,PeriodicBackgroundSync,TFLiteLanguageDetectionEnabled,Vulkan,WebOTP --variations-seed-version --log-level=2
 ```
 
 ## Listening ports
 ```text
 State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                        
-LISTEN 0      511          0.0.0.0:3001       0.0.0.0:*    users:(("nginx",pid=295,fd=7))
-LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("nginx",pid=295,fd=5))
+LISTEN 0      511          0.0.0.0:3001       0.0.0.0:*    users:(("nginx",pid=297,fd=7))
+LISTEN 0      511          0.0.0.0:3000       0.0.0.0:*    users:(("nginx",pid=297,fd=5))
 LISTEN 0      100          0.0.0.0:8082       0.0.0.0:*                                  
-LISTEN 0      4096      127.0.0.11:43419      0.0.0.0:*                                  
-LISTEN 0      511             [::]:3001          [::]:*    users:(("nginx",pid=295,fd=8))
-LISTEN 0      511             [::]:3000          [::]:*    users:(("nginx",pid=295,fd=6))
+LISTEN 0      4096      127.0.0.11:40699      0.0.0.0:*                                  
+LISTEN 0      511             [::]:3001          [::]:*    users:(("nginx",pid=297,fd=8))
+LISTEN 0      511             [::]:3000          [::]:*    users:(("nginx",pid=297,fd=6))
 ```
 
 ## DevTools probe
@@ -64,7 +64,7 @@ xprop=/usr/bin/xprop
 xclip=/usr/bin/xclip
 --- visible wechat windows ---
 WINDOW_INDEX=1
-WINDOW=25165830
+WINDOW=18874374
 X=372
 Y=194
 WIDTH=280
@@ -75,4 +75,13 @@ WM_CLASS(STRING) = "wechat", "wechat"
 _NET_WM_NAME=<redacted>
 WM_NAME=<redacted>
 WECHAT_WINDOWS=1
+```
+
+## URL handler capability
+```text
+--- desktop candidates ---
+/usr/share/applications/wechat.desktop
+--- x-scheme-handler/weixin ---
+--- registrations ---
+--- executable strings hints ---
 ```
