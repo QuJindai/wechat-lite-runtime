@@ -3,7 +3,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -103,6 +105,64 @@ def fetch_runtime_status(token: str, url: str = DEFAULT_STATUS_URL) -> dict[str,
         raise RuntimeError(f"control_api_unreachable: {exc.reason}") from exc
 
 
+def start_control_api() -> dict[str, Any]:
+    root_dir = Path(__file__).resolve().parents[1]
+    script = root_dir / "scripts" / "start-control-api.sh"
+    if not script.exists():
+        return {"started": False, "detail": f"missing_start_script:{script}"}
+    try:
+        completed = subprocess.run(
+            ["bash", str(script)],
+            cwd=root_dir,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"started": False, "detail": f"start_exception:{exc}"}
+    detail = "\n".join(
+        part
+        for part in (completed.stdout.strip(), completed.stderr.strip())
+        if part
+    )
+    return {
+        "started": completed.returncode == 0,
+        "detail": detail or f"exit={completed.returncode}",
+    }
+
+
+def fetch_runtime_status_with_recovery(
+    token: str,
+    url: str = DEFAULT_STATUS_URL,
+) -> dict[str, Any]:
+    try:
+        return fetch_runtime_status(token, url)
+    except RuntimeError as first_exc:
+        if not str(first_exc).startswith("control_api_unreachable:"):
+            raise
+
+        recovery = start_control_api()
+        if not recovery.get("started"):
+            raise RuntimeError(
+                f"{first_exc}; control_api_recovery_failed: {recovery.get('detail', '')}"
+            ) from first_exc
+
+        last_exc: RuntimeError | None = None
+        for _ in range(20):
+            try:
+                return fetch_runtime_status(token, url)
+            except RuntimeError as exc:
+                last_exc = exc
+                if not str(exc).startswith("control_api_unreachable:"):
+                    raise
+                time.sleep(0.25)
+
+        raise RuntimeError(
+            f"{last_exc or first_exc}; control_api_recovery_detail: {recovery.get('detail', '')}"
+        ) from last_exc
+
+
 def _print_result(result: Mapping[str, Any]) -> None:
     print(json.dumps(dict(result), ensure_ascii=False, indent=2))
 
@@ -126,7 +186,7 @@ def main(argv: list[str] | None = None) -> int:
     token = ensure_control_token(state_dir, os.getenv("WECHAT_CONTROL_TOKEN"))
 
     try:
-        status = fetch_runtime_status(token, args.status_url)
+        status = fetch_runtime_status_with_recovery(token, args.status_url)
     except RuntimeError as exc:
         _print_result({"verdict": "CONTROL_API_ERROR", "error": str(exc)})
         return 2
