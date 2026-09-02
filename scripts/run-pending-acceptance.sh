@@ -12,7 +12,6 @@ mkdir -p state
 python - <<'PY'
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -21,20 +20,17 @@ import urllib.request
 from pathlib import Path
 
 from app.config import ensure_control_token
+from app.pending_acceptance import (
+    AcceptanceCacheIdentity,
+    build_safe_session_generation,
+    build_target_fingerprint,
+    can_reuse_pass,
+    read_git_head,
+)
 
 target_path = Path("config/v1-physical-acceptance-target.json")
 result_path = Path("state/.v1-newest20-acceptance-latest.json")
 target = json.loads(target_path.read_text(encoding="utf-8"))
-fingerprint = hashlib.sha256(json.dumps(target, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
-
-if result_path.is_file():
-    try:
-        previous = json.loads(result_path.read_text(encoding="utf-8"))
-    except Exception:
-        previous = {}
-    if previous.get("target_fingerprint") == fingerprint and (previous.get("response") or {}).get("verdict") == "AUTOMATED_GATE_PASS_UI_PENDING":
-        raise SystemExit(0)
-
 state_dir = Path(os.getenv("WECHAT_STATE_DIR", "state"))
 token = ensure_control_token(state_dir, os.getenv("WECHAT_CONTROL_TOKEN"))
 
@@ -54,15 +50,27 @@ for _ in range(60):
         pass
     time.sleep(2)
 
+cache_identity = AcceptanceCacheIdentity(
+    target_fingerprint=build_target_fingerprint(target),
+    git_head=read_git_head(Path.cwd()),
+    session_generation=build_safe_session_generation(state_dir),
+)
+if result_path.is_file():
+    try:
+        previous = json.loads(result_path.read_text(encoding="utf-8"))
+    except Exception:
+        previous = {}
+    if isinstance(previous, dict) and can_reuse_pass(previous, cache_identity):
+        raise SystemExit(0)
+
 payload = json.dumps({
-    "account_name": target["account_name"],
-    "biz": target["biz"],
+    "article_url": target["article_url"],
 }, ensure_ascii=False).encode("utf-8")
 
 last = None
 for attempt in range(3):
     req = urllib.request.Request(
-        "http://127.0.0.1:8787/v1/public-accounts/acceptance",
+        "http://127.0.0.1:8787/v1/public-accounts/acceptance-from-url",
         data=payload,
         headers={
             "Authorization": f"Bearer {token}",
@@ -87,12 +95,31 @@ for attempt in range(3):
         last = {"http_status": 0, "response": {"detail": "acceptance_unreachable"}}
     time.sleep(10 * (attempt + 1))
 
+final_identity = AcceptanceCacheIdentity(
+    target_fingerprint=cache_identity.target_fingerprint,
+    git_head=cache_identity.git_head,
+    session_generation=build_safe_session_generation(state_dir),
+)
 record = {
-    "target_fingerprint": fingerprint,
+    **final_identity.to_dict(),
     "target": target,
     **(last or {"http_status": 0, "response": {"detail": "acceptance_not_attempted"}}),
     "sensitive_values_returned": False,
 }
-result_path.write_text(json.dumps(record, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-result_path.chmod(0o600)
+temporary_path = result_path.with_name(f"{result_path.name}.tmp.{os.getpid()}")
+data = (json.dumps(record, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+fd = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+try:
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary_path, result_path)
+    if os.name != "nt":
+        result_path.chmod(0o600)
+finally:
+    try:
+        temporary_path.unlink()
+    except OSError:
+        pass
 PY

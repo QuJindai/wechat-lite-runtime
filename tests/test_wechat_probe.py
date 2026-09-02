@@ -82,3 +82,12 @@ def test_probe_endpoint_is_bearer_protected_and_sanitized(tmp_path: Path):
     assert response.status_code == 200
     assert response.json()["sensitive_values_returned"] is False
     assert "TOPSECRET_COOKIE_VALUE" not in response.text
+
+
+def test_pending_acceptance_result_does_not_initialize_probe_state(tmp_path: Path):
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / ".v1-newest20-acceptance-latest.json").write_text("{}", encoding="utf-8")
+    (state / ".v1-newest20-acceptance-latest.json.tmp.123").write_text("{}", encoding="utf-8")
+
+    assert probe_state(state)["state_initialized"] is False

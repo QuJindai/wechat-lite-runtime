@@ -20,8 +20,14 @@ def test_poststart_runs_pending_acceptance_without_terminal_input():
     assert "run-pending-acceptance.sh" in command
 
     script = (ROOT / "scripts/run-pending-acceptance.sh").read_text(encoding="utf-8")
-    assert "/v1/public-accounts/acceptance" in script
+    assert "/v1/public-accounts/acceptance-from-url" in script
+    assert '"article_url": target["article_url"]' in script
+    assert '"account_name": target["account_name"]' not in script
+    assert '"biz": target["biz"]' not in script
     assert "config/v1-physical-acceptance-target.json" in script
     assert "state/.v1-newest20-acceptance-latest.json" in script
+    assert "build_safe_session_generation" in script
+    assert "read_git_head" in script
+    assert "can_reuse_pass" in script
     assert "ensure_control_token" in script
     assert "cat state/.control-token" not in script

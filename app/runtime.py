@@ -15,13 +15,15 @@ RUNTIME_METADATA_FILES = {
     ".control-token",
     ".v0-acceptance-before.json",
     ".public-account-index.json",
+    ".v1-newest20-acceptance-latest.json",
 }
 
 
-def _is_runtime_metadata(item: Path) -> bool:
+def is_runtime_metadata(item: Path) -> bool:
     return (
         item.name in RUNTIME_METADATA_FILES
         or item.name.startswith(".public-account-index.json.tmp.")
+        or item.name.startswith(".v1-newest20-acceptance-latest.json.tmp.")
     )
 
 
@@ -32,7 +34,7 @@ def summarize_state_dir(path: Path) -> dict[str, int | bool]:
     file_count = 0
     total_bytes = 0
     for item in path.rglob("*"):
-        if not item.is_file() or _is_runtime_metadata(item):
+        if not item.is_file() or is_runtime_metadata(item):
             continue
         file_count += 1
         try:

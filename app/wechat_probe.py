@@ -4,6 +4,8 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from app.runtime import is_runtime_metadata
+
 _ACCOUNT_SEGMENT = re.compile(r"^(?:wxid_|gh_)[A-Za-z0-9_-]+$", re.IGNORECASE)
 _DB_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 
@@ -65,7 +67,7 @@ def probe_state(state_dir: Path) -> dict[str, object]:
         for path in state_dir.rglob("*"):
             if not path.is_file():
                 continue
-            if path.name not in {".gitignore", ".control-token", ".v0-acceptance-before.json"}:
+            if not is_runtime_metadata(path):
                 state_initialized = True
             artifact_class = classify_artifact(path, state_dir)
             if artifact_class is None:

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from app.runtime import build_codespace_port_url, summarize_state_dir
@@ -79,7 +80,8 @@ def test_settings_generates_and_reuses_persistent_control_token(monkeypatch, tmp
     assert first.control_token == second.control_token
     token_file = tmp_path / ".control-token"
     assert token_file.read_text(encoding="utf-8").strip() == first.control_token
-    assert token_file.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert token_file.stat().st_mode & 0o777 == 0o600
 
 
 def test_explicit_control_token_wins_without_creating_token_file(monkeypatch, tmp_path: Path):
@@ -97,6 +99,17 @@ def test_explicit_control_token_wins_without_creating_token_file(monkeypatch, tm
 def test_runtime_metadata_does_not_initialize_wechat_profile(tmp_path: Path):
     (tmp_path / ".control-token").write_text("secret", encoding="utf-8")
     (tmp_path / ".v0-acceptance-before.json").write_text("{}", encoding="utf-8")
+
+    assert summarize_state_dir(tmp_path) == {
+        "initialized": False,
+        "file_count": 0,
+        "total_bytes": 0,
+    }
+
+
+def test_pending_acceptance_result_does_not_initialize_session_storage(tmp_path: Path):
+    (tmp_path / ".v1-newest20-acceptance-latest.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".v1-newest20-acceptance-latest.json.tmp.123").write_text("{}", encoding="utf-8")
 
     assert summarize_state_dir(tmp_path) == {
         "initialized": False,
