@@ -2,32 +2,18 @@ from __future__ import annotations
 
 import json
 import os
-import unicodedata
 from pathlib import Path
 
+from app.public_accounts import VerifiedAccountIdentity, normalize_account_display_name
+
 _INDEX_FILE = ".public-account-index.json"
-_VERSION = 1
+_VERSION = 2
 _MAX_ENTRIES = 500
+_ENTRY_FIELDS = {"account_name", "biz", "provenance", "canonical_seed_url"}
 
 
 def _normalize_account_name(value: str) -> str:
-    if any(ord(char) < 32 for char in value):
-        raise ValueError("invalid_account_name")
-    stripped = value.strip()
-    if not stripped or len(stripped) > 256:
-        raise ValueError("invalid_account_name")
-    normalized = unicodedata.normalize("NFKC", stripped)
-    collapsed = " ".join(normalized.split()).casefold()
-    if not collapsed:
-        raise ValueError("invalid_account_name")
-    return collapsed
-
-
-def _validate_biz(value: str) -> str:
-    stripped = value.strip()
-    if not stripped or len(stripped) > 256 or any(char.isspace() for char in stripped):
-        raise ValueError("invalid_target_biz")
-    return stripped
+    return normalize_account_display_name(value).casefold()
 
 
 class PublicAccountIndex:
@@ -38,7 +24,7 @@ class PublicAccountIndex:
     def __repr__(self) -> str:
         return "PublicAccountIndex(path='<private-state>')"
 
-    def _load(self) -> dict[str, str]:
+    def _load(self) -> dict[str, VerifiedAccountIdentity]:
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, UnicodeDecodeError):
@@ -48,36 +34,51 @@ class PublicAccountIndex:
         accounts = payload.get("accounts")
         if not isinstance(accounts, dict):
             return {}
-        clean: dict[str, str] = {}
+        clean: dict[str, VerifiedAccountIdentity] = {}
         for key, value in accounts.items():
-            if not isinstance(key, str) or not isinstance(value, str):
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+            if set(value) != _ENTRY_FIELDS:
                 continue
             try:
-                clean[_normalize_account_name(key)] = _validate_biz(value)
-            except ValueError:
+                identity = VerifiedAccountIdentity(
+                    account_name=str(value["account_name"]),
+                    biz=str(value["biz"]),
+                    provenance=str(value["provenance"]),
+                    canonical_seed_url=str(value["canonical_seed_url"]),
+                )
+                normalized_key = _normalize_account_name(key)
+            except (KeyError, TypeError, ValueError):
                 continue
+            if normalized_key != _normalize_account_name(identity.account_name):
+                continue
+            clean[normalized_key] = identity
             if len(clean) >= _MAX_ENTRIES:
                 break
         return clean
 
-    def resolve(self, account_name: str) -> str | None:
+    def resolve_verified(self, account_name: str) -> VerifiedAccountIdentity | None:
         try:
             key = _normalize_account_name(account_name)
         except ValueError:
             return None
         return self._load().get(key)
 
-    def remember(self, account_name: str, biz: str) -> None:
-        key = _normalize_account_name(account_name)
-        value = _validate_biz(biz)
+    def remember_verified(self, identity: VerifiedAccountIdentity) -> None:
+        if not isinstance(identity, VerifiedAccountIdentity):
+            raise TypeError("verified_identity_required")
+        key = _normalize_account_name(identity.account_name)
         accounts = self._load()
         if key not in accounts and len(accounts) >= _MAX_ENTRIES:
             oldest_key = sorted(accounts)[0]
             accounts.pop(oldest_key, None)
-        accounts[key] = value
+        accounts[key] = identity
         payload = {
             "version": _VERSION,
-            "accounts": dict(sorted(accounts.items())),
+            "accounts": {
+                account_key: account_identity.safe_summary()
+                for account_key, account_identity in sorted(accounts.items())
+            },
         }
 
         self.state_dir.mkdir(parents=True, exist_ok=True)

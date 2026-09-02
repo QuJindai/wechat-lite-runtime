@@ -1,22 +1,48 @@
 import json
+import os
 
 from app.account_index import PublicAccountIndex
+from app.public_accounts import VerifiedAccountIdentity
 
 
-def test_account_index_persists_name_to_public_biz_across_instances_with_private_file_mode(tmp_path):
+def identity(
+    *,
+    account_name: str = "示例公众号",
+    biz: str = "BIZ_PUBLIC",
+    seed_url: str = "https://mp.weixin.qq.com/s/public-seed",
+) -> VerifiedAccountIdentity:
+    return VerifiedAccountIdentity(
+        account_name=account_name,
+        biz=biz,
+        provenance="public_seed_article",
+        canonical_seed_url=seed_url,
+    )
+
+
+def test_account_index_persists_verified_seed_identity_across_instances(tmp_path):
     index = PublicAccountIndex(tmp_path)
-    index.remember("  示例公众号  ", "BIZ_PUBLIC")
+    index.remember_verified(identity(account_name="  示例公众号  "))
 
     restored = PublicAccountIndex(tmp_path)
-    assert restored.resolve("示例公众号") == "BIZ_PUBLIC"
-    assert restored.resolve("  示例公众号  ") == "BIZ_PUBLIC"
+    assert restored.resolve_verified("示例公众号") == identity()
+    assert restored.resolve_verified("  示例公众号  ") == identity()
 
     path = tmp_path / ".public-account-index.json"
     assert path.exists()
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600
     payload = json.loads(path.read_text(encoding="utf-8"))
-    assert payload["version"] == 1
-    assert "BIZ_PUBLIC" in path.read_text(encoding="utf-8")
+    assert payload == {
+        "version": 2,
+        "accounts": {
+            "示例公众号": {
+                "account_name": "示例公众号",
+                "biz": "BIZ_PUBLIC",
+                "provenance": "public_seed_article",
+                "canonical_seed_url": "https://mp.weixin.qq.com/s/public-seed",
+            }
+        },
+    }
     for forbidden in ["key", "pass_ticket", "appmsg_token", "cookie", "token"]:
         assert forbidden not in json.dumps(payload).lower()
 
@@ -25,19 +51,57 @@ def test_account_index_normalizes_name_and_handles_corrupt_file_without_throwing
     path = tmp_path / ".public-account-index.json"
     path.write_text("not-json", encoding="utf-8")
     index = PublicAccountIndex(tmp_path)
-    assert index.resolve("Example Account") is None
+    assert index.resolve_verified("Example Account") is None
 
-    index.remember("Ｅｘａｍｐｌｅ　Ａｃｃｏｕｎｔ", "BIZ_ONE")
-    assert index.resolve("example account") == "BIZ_ONE"
+    index.remember_verified(identity(account_name="Ｅｘａｍｐｌｅ　Ａｃｃｏｕｎｔ", biz="BIZ_ONE"))
+    restored = index.resolve_verified("example account")
+    assert restored is not None
+    assert restored.account_name == "Example Account"
+    assert restored.biz == "BIZ_ONE"
 
 
-def test_account_index_rejects_invalid_values_without_writing_them(tmp_path):
+def test_legacy_v1_entries_are_unverified_and_read_only(tmp_path):
+    path = tmp_path / ".public-account-index.json"
+    legacy = '{"version":1,"accounts":{"示例公众号":"BIZ_LEGACY"}}\n'
+    path.write_text(legacy, encoding="utf-8")
+
+    assert PublicAccountIndex(tmp_path).resolve_verified("示例公众号") is None
+    assert path.read_text(encoding="utf-8") == legacy
+
+
+def test_malformed_v2_entries_are_ignored(tmp_path):
+    path = tmp_path / ".public-account-index.json"
+    path.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "accounts": {
+                    "bad provenance": {
+                        "account_name": "Bad Provenance",
+                        "biz": "BIZ_ONE",
+                        "provenance": "caller_input",
+                        "canonical_seed_url": "https://mp.weixin.qq.com/s/one",
+                    },
+                    "bad url": {
+                        "account_name": "Bad URL",
+                        "biz": "BIZ_TWO",
+                        "provenance": "public_seed_article",
+                        "canonical_seed_url": "https://example.com/s/two",
+                    },
+                    "bad shape": "BIZ_THREE",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
     index = PublicAccountIndex(tmp_path)
-    for name, biz in [("", "BIZ"), ("name", ""), ("name\n", "BIZ"), ("name", "BAD BIZ")]:
-        try:
-            index.remember(name, biz)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("expected ValueError")
-    assert index.resolve("name") is None
+    assert index.resolve_verified("Bad Provenance") is None
+    assert index.resolve_verified("Bad URL") is None
+    assert index.resolve_verified("Bad Shape") is None
+
+
+def test_unverified_name_biz_write_api_is_not_available(tmp_path):
+    index = PublicAccountIndex(tmp_path)
+    assert not hasattr(index, "remember")
+    assert not hasattr(index, "resolve")
