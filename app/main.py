@@ -11,6 +11,7 @@ from app.providers import ProviderError, PublicAccountProvider
 from app.public_accounts import redact_sensitive_text
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
 from app.wechat_probe import probe_state
+from app.webview_probe import probe_webview_state
 
 TcpProbe = Callable[[str, int, float], bool]
 
@@ -20,7 +21,7 @@ def create_app(
     tcp_probe: TcpProbe = probe_tcp,
     public_account_provider: PublicAccountProvider | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.2.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.3.0")
     bearer = HTTPBearer(auto_error=False)
 
     def require_control_token(
@@ -62,6 +63,10 @@ def create_app(
     @application.get("/v1/wechat/probe", dependencies=[Depends(require_control_token)])
     def wechat_probe() -> dict[str, object]:
         return probe_state(settings.state_dir)
+
+    @application.get("/v1/wechat/webview-probe", dependencies=[Depends(require_control_token)])
+    def wechat_webview_probe() -> dict[str, object]:
+        return probe_webview_state(settings.state_dir)
 
     @application.get(
         "/v1/public-accounts/{account}/recent",
