@@ -5,7 +5,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-from app.history_pager import build_page_url, parse_profile_ext_page
+from app.history_pager import (
+    ProfileExtAuthError,
+    ProfileExtResponseError,
+    build_page_url,
+    parse_profile_ext_page,
+)
 from app.history_seed import HistorySeed, locate_history_seed
 from app.public_accounts import DiscoveryResult, build_discovery_result, normalize_article
 
@@ -72,6 +77,10 @@ class AuthenticatedHistoryProvider:
 
             try:
                 page_records, can_continue = parse_profile_ext_page(payload, account)
+            except ProfileExtAuthError as exc:
+                raise ProviderError("LOGIN_REQUIRED", "profile_ext_login_required") from exc
+            except ProfileExtResponseError as exc:
+                raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "profile_ext_request_rejected") from exc
             except ValueError as exc:
                 raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_page_invalid") from exc
 
