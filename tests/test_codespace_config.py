@@ -45,10 +45,11 @@ def test_readme_documents_persistence_and_physical_gate():
     assert "ghcr.io/nickrunning/wechat-selkies:0.0.16" in readme
 
 
-def test_development_doc_keeps_main_merge_blocked_until_phone_gate():
+def test_development_doc_records_physical_login_gate_passed():
     development = (ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
-    assert "PHYSICAL_LOGIN_PERSISTENCE" in development
-    assert "Do not merge" in development
+    assert "CODESPACE_STATE_PERSISTENCE = PASS" in development
+    assert "PHYSICAL_LOGIN_PERSISTENCE = PASS" in development
+    assert "V0 = PASS" in development
 
 
 def test_wechat_ui_auto_opens_when_codespace_starts():
