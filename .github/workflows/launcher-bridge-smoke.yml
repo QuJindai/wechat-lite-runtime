@@ -1,0 +1,95 @@
+name: Launcher Bridge Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/v1-public-account-discovery
+    paths:
+      - '.devcontainer/docker-compose.yml'
+      - 'scripts/wechat-launcher-service.py'
+      - 'app/launcher_bridge.py'
+      - '.github/workflows/launcher-bridge-smoke.yml'
+
+permissions:
+  contents: read
+
+env:
+  WECHAT_IMAGE: ghcr.io/nickrunning/wechat-selkies:0.0.16
+
+jobs:
+  bridge-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare ephemeral control token
+        run: |
+          mkdir -p state
+          printf '%s\n' 'test-control-token' > state/.control-token
+          chmod 600 state/.control-token
+
+      - name: Validate Compose
+        run: docker compose -f .devcontainer/docker-compose.yml config >/dev/null
+
+      - name: Start runtime
+        run: docker compose -f .devcontainer/docker-compose.yml up -d wechat workspace
+
+      - name: Wait for internal launcher health
+        run: |
+          for i in $(seq 1 90); do
+            if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
+              python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8790/healthz', timeout=1).read().decode())"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f .devcontainer/docker-compose.yml logs wechat || true
+          exit 1
+
+      - name: Wait for WeChat process
+        run: |
+          for i in $(seq 1 60); do
+            if docker compose -f .devcontainer/docker-compose.yml exec -T wechat \
+              bash -lc "pgrep -f '/opt/wechat/wechat|/usr/bin/wechat' >/dev/null"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose -f .devcontainer/docker-compose.yml ps
+          exit 1
+
+      - name: Invoke WeChat through workspace-to-container loopback bridge
+        run: |
+          docker compose -f .devcontainer/docker-compose.yml exec -T workspace python - <<'PY'
+          import json
+          import urllib.request
+
+          target = 'https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=TEST_BIZ&scene=124#wechat_redirect'
+          request = urllib.request.Request(
+              'http://127.0.0.1:8790/open',
+              data=json.dumps({'url': target}).encode(),
+              headers={
+                  'Authorization': 'Bearer test-control-token',
+                  'Content-Type': 'application/json',
+              },
+              method='POST',
+          )
+          with urllib.request.urlopen(request, timeout=10) as response:
+              payload = json.loads(response.read().decode())
+          safe = {
+              'dispatch_attempted': payload.get('dispatch_attempted'),
+              'exit_code': payload.get('exit_code'),
+              'secondary_instance_exit': payload.get('secondary_instance_exit'),
+              'executable': payload.get('executable'),
+          }
+          print(json.dumps(safe, sort_keys=True))
+          assert safe['dispatch_attempted'] is True, safe
+          assert safe['exit_code'] in (0, 255), safe
+          assert safe['executable'] == '/usr/bin/wechat', safe
+          PY
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .devcontainer/docker-compose.yml down -v || true
