@@ -139,6 +139,31 @@ jobs:
             ' 2>&1
           } > /tmp/runtime-cli-probe/x11.txt
 
+      - name: Probe Linux WeChat URL handler and deep-link registration
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          {
+            echo '--- desktop candidates ---'
+            docker exec "$cid" bash -lc '
+              for desktop in /usr/share/applications/com.tencent.WeChat.desktop /usr/share/applications/WeChat.desktop; do
+                if [ -f "$desktop" ]; then
+                  echo DESKTOP_FILE=$desktop
+                  grep -E "^(Name|Exec|MimeType)=" "$desktop" || true
+                fi
+              done
+              find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop" -print 2>/dev/null | sort -u
+            ' 2>/dev/null || true
+            echo '--- x-scheme-handler/weixin ---'
+            docker exec "$cid" bash -lc 'command -v xdg-mime >/dev/null 2>&1 && xdg-mime query default x-scheme-handler/weixin || true' 2>/dev/null || true
+            echo '--- registrations ---'
+            docker exec "$cid" bash -lc 'grep -R -I -n -E "x-scheme-handler/weixin|weixin://|wxwork://" /usr/share/applications /opt/wechat 2>/dev/null | head -n 200' \
+              | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' || true
+            echo '--- executable strings hints ---'
+            docker exec "$cid" bash -lc 'find /opt/wechat -maxdepth 3 -type f -size -10M 2>/dev/null -print0 | xargs -0 -r grep -I -n -E "weixin://|x-scheme-handler/weixin" 2>/dev/null | head -n 120' || true
+          } > /tmp/runtime-cli-probe/url-handler.txt
+
       - name: Persist sanitized CLI summary
         if: always() && github.event_name == 'push'
         run: |
@@ -181,6 +206,11 @@ jobs:
             echo '## X11 capability'
             echo '```text'
             head -n 200 /tmp/runtime-cli-probe/x11.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## URL handler capability'
+            echo '```text'
+            head -n 240 /tmp/runtime-cli-probe/url-handler.txt 2>/dev/null || true
             echo '```'
           } > docs/runtime-cli-probe-latest.md
           git config user.name 'github-actions[bot]'
