@@ -96,7 +96,7 @@ jobs:
           assert 'test-control-token' not in rendered
           PY
 
-      - name: Verify discover fails cleanly without logged-in credential
+      - name: Verify known-biz discover fails cleanly without logged-in credential
         run: |
           docker compose -f .devcontainer/docker-compose.yml exec -T workspace python - <<'PY'
           import json
@@ -119,6 +119,33 @@ jobs:
               assert exc.code == 503, (exc.code, payload)
               assert payload['detail']['code'] == 'HISTORY_SURFACE_UNAVAILABLE', payload
               assert 'TEST_BIZ' not in body
+              assert 'test-control-token' not in body
+          PY
+
+      - name: Verify name-only discover enters UI path and fails safely when runner is not logged in
+        run: |
+          docker compose -f .devcontainer/docker-compose.yml exec -T workspace python - <<'PY'
+          import json
+          import urllib.error
+          import urllib.request
+
+          account_name = 'SMOKE_NAME_ONLY_ACCOUNT'
+          req = urllib.request.Request(
+              'http://127.0.0.1:8787/v1/public-accounts/discover',
+              data=json.dumps({'account_name': account_name, 'limit': 20}).encode(),
+              headers={'Authorization': 'Bearer test-control-token', 'Content-Type': 'application/json'},
+              method='POST',
+          )
+          try:
+              urllib.request.urlopen(req, timeout=30)
+              raise AssertionError('name-only discover unexpectedly succeeded on fresh non-logged-in runner')
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode()
+              payload = json.loads(body)
+              print(json.dumps(payload, sort_keys=True))
+              assert exc.code in (404, 503), (exc.code, payload)
+              assert payload['detail']['code'] in ('ACCOUNT_NOT_FOUND', 'HISTORY_SURFACE_UNAVAILABLE'), payload
+              assert account_name not in body
               assert 'test-control-token' not in body
           PY
 
