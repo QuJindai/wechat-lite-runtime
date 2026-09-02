@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-bash scripts/start-control-api.sh
+WECHAT_CONTROL_FORCE_RESTART=1 bash scripts/start-control-api.sh
 
 python - <<'PY'
 from __future__ import annotations
