@@ -82,14 +82,14 @@ jobs:
             echo '```'
           } > docs/runtime-smoke-latest.md
 
-      - name: Persist smoke diagnostic
-        if: always() && github.event_name == 'push'
+      - name: Persist failed smoke diagnostic
+        if: always() && github.event_name == 'push' && (steps.validate.outcome != 'success' || steps.start.outcome != 'success' || steps.probe.outcome != 'success')
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add docs/runtime-smoke-latest.md
           if ! git diff --cached --quiet; then
-            git commit -m 'ci: record runtime smoke diagnostic'
+            git commit -m 'ci: record failed runtime smoke diagnostic'
             git push
           fi
 
