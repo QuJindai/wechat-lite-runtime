@@ -13,7 +13,7 @@ services:
     depends_on:
     - wechat
   wechat:
-    image: ${WECHAT_IMAGE:-ghcr.io/nickrunning/wechat-selkies:minimal}
+    image: ghcr.io/nickrunning/wechat-selkies:0.0.16
     restart: unless-stopped
     volumes:
     - ../state:/config
