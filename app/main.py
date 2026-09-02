@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Callable
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -77,7 +78,9 @@ def create_app(
         launcher=bridge_launcher,
         ui_navigator=bridge_launcher if isinstance(bridge_launcher, HttpWechatURLLauncher) else None,
     )
-    active_seed_resolver = seed_article_resolver or SeedArticleResolver()
+    active_seed_resolver = seed_article_resolver or SeedArticleResolver(
+        cache_path=Path(__file__).resolve().parents[1] / "config" / "public-seed-identities.json"
+    )
 
     def require_control_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
