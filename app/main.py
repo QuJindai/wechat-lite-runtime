@@ -15,6 +15,7 @@ from app.live_discovery import LiveDiscoveryService
 from app.providers import ProviderError, PublicAccountProvider
 from app.public_accounts import redact_sensitive_text
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
+from app.v1_acceptance import evaluate_newest20_gate
 from app.wechat_probe import probe_state
 from app.webview_probe import probe_webview_state
 
@@ -32,6 +33,11 @@ class DiscoverRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
+class AcceptanceRequest(BaseModel):
+    account_name: str = Field(min_length=1, max_length=256)
+    biz: str | None = Field(default=None, min_length=1, max_length=256)
+
+
 def create_app(
     settings: Settings,
     tcp_probe: TcpProbe = probe_tcp,
@@ -39,7 +45,7 @@ def create_app(
     account_bootstrapper: AccountBootstrapper | None = None,
     live_discovery_service: LiveDiscoveryService | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.9.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.10.0")
     bearer = HTTPBearer(auto_error=False)
 
     bridge_launcher = (
@@ -167,6 +173,23 @@ def create_app(
                 detail={"code": "INVALID_DISCOVERY_REQUEST"},
             ) from exc
         return result.to_dict()
+
+    @application.post("/v1/public-accounts/acceptance", dependencies=[Depends(require_control_token)])
+    def public_account_acceptance(request: AcceptanceRequest) -> dict[str, object]:
+        try:
+            result = active_live_discovery.recent_articles(
+                request.account_name,
+                request.biz,
+                20,
+            )
+        except ProviderError as exc:
+            raise_provider_http_error(exc)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "INVALID_ACCEPTANCE_REQUEST"},
+            ) from exc
+        return evaluate_newest20_gate(result)
 
     @application.get(
         "/v1/public-accounts/{account}/recent",
