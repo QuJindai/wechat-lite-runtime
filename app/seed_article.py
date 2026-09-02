@@ -7,7 +7,7 @@ import urllib.request
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Callable, Protocol
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.public_accounts import canonicalize_mp_url
 
@@ -28,11 +28,7 @@ class SeedIdentity:
     canonical_url: str
 
     def safe_summary(self) -> dict[str, str]:
-        return {
-            "account_name": self.account_name,
-            "biz": self.biz,
-            "canonical_url": self.canonical_url,
-        }
+        return {"account_name": self.account_name, "biz": self.biz, "canonical_url": self.canonical_url}
 
     def __repr__(self) -> str:
         return f"SeedIdentity({self.safe_summary()!r})"
@@ -86,6 +82,7 @@ _BIZ_PATTERNS = (
     re.compile(r'''(?:[?&]|&amp;)__biz=([^&"'<>\s]+)'''),
 )
 _NICKNAME_PATTERNS = (
+    re.compile(r'''\bvar\s+nickname\s*=\s*htmlDecode\(\s*["']([^"']+)["']\s*\)'''),
     re.compile(r'''\bvar\s+nickname\s*=\s*["']([^"']+)["']'''),
     re.compile(r'''["']nickname["']\s*:\s*["']([^"']+)["']'''),
 )
@@ -104,6 +101,13 @@ def _validate_seed_url(url: str) -> str:
         return canonicalize_mp_url(url)
     except ValueError as exc:
         raise SeedResolutionError("SEED_URL_NOT_ALLOWED") from exc
+
+
+def _fetch_url(article_url: str) -> str:
+    parsed = urlsplit(article_url.strip())
+    pairs = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != "nwr_flag"]
+    pairs.append(("nwr_flag", "1"))
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(pairs), ""))
 
 
 def _extract_identity(page: str, canonical_url: str) -> SeedIdentity:
@@ -133,13 +137,7 @@ def _extract_identity(page: str, canonical_url: str) -> SeedIdentity:
 
 
 class SeedArticleResolver:
-    def __init__(
-        self,
-        *,
-        opener: OpenFn = _default_open,
-        timeout_seconds: float = 10.0,
-        max_response_bytes: int = _MAX_RESPONSE_BYTES,
-    ) -> None:
+    def __init__(self, *, opener: OpenFn = _default_open, timeout_seconds: float = 10.0, max_response_bytes: int = _MAX_RESPONSE_BYTES) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds_out_of_range")
         if max_response_bytes < 1:
@@ -150,10 +148,12 @@ class SeedArticleResolver:
 
     def resolve(self, article_url: str) -> SeedIdentity:
         canonical_url = _validate_seed_url(article_url)
+        fetch_url = _fetch_url(article_url)
         request = urllib.request.Request(
-            article_url,
+            fetch_url,
             headers={
                 "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "zh-CN,zh;q=0.9",
                 "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36 MicroMessenger/8.0",
             },
             method="GET",
@@ -167,8 +167,7 @@ class SeedArticleResolver:
             body = response.read(self.max_response_bytes + 1)
             if len(body) > self.max_response_bytes:
                 raise SeedResolutionError("SEED_RESPONSE_TOO_LARGE")
-            page = body.decode("utf-8", errors="replace")
-            return _extract_identity(page, canonical_url)
+            return _extract_identity(body.decode("utf-8", errors="replace"), canonical_url)
         except SeedResolutionError:
             raise
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError) as exc:
