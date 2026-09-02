@@ -61,3 +61,17 @@ bash scripts/probe-wechat-state.sh
 The command self-heals the local control API, reads the private control token only inside the process, calls `127.0.0.1:8787/v1/wechat/probe`, and prints sanitized JSON. It does not print cookies, auth tokens, raw WeChat database contents, contacts or messages.
 
 The probe result is used to choose the concrete authenticated WebView/history extraction path. Real session-reading code is not enabled until the sanitized probe establishes which artifact classes are actually present.
+
+## V1 Phase B: WebView container probe
+
+The Phase A physical probe confirmed that `.xwechat/radium/web` contains WebView cache, cookie-store candidates and `mp.weixin.qq.com` traces. Phase B narrows that evidence to concrete Chromium profile containers without returning secret values.
+
+Run:
+
+```bash
+bash scripts/probe-wechat-webview.sh
+```
+
+The output contains only sanitized profile/container paths, container classes, safe SQLite schema names, and fixed marker counts for `mp.weixin.qq.com`, `__biz`, `pass_ticket`, and `appmsg_token`. It does not return cookie or token values, Local Storage values, database rows, messages, contacts, request headers, QR content, or encryption keys.
+
+The result selects the concrete authenticated history implementation: Local Storage LevelDB, a standard cookie/history SQLite path, or a GUI-guided fallback if no suitable WebView container is present.
