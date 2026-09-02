@@ -19,8 +19,9 @@ def test_readme_documents_v1_safe_probe_command_and_privacy_boundary():
     assert "does not print cookies" in readme.lower()
 
 
-def test_development_doc_records_v1_phase_a_handoff_gate():
+def test_development_doc_records_v1_phase_a_physical_probe_passed():
     development = (ROOT / "DEVELOPMENT.md").read_text(encoding="utf-8")
     assert "V1_PHASE_A_SOFTWARE = PASS" in development
-    assert "V1_SAFE_RUNTIME_PROBE = PENDING_PHYSICAL" in development
+    assert "V1_SAFE_RUNTIME_PROBE = PASS" in development
+    assert "mp_weixin_trace" in development
     assert "newest 20" in development.lower()
