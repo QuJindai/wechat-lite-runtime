@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
+from app.history_seed import probe_history_seed_status
 from app.providers import ProviderError, PublicAccountProvider
 from app.public_accounts import redact_sensitive_text
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
@@ -21,7 +22,7 @@ def create_app(
     tcp_probe: TcpProbe = probe_tcp,
     public_account_provider: PublicAccountProvider | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.3.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.4.0")
     bearer = HTTPBearer(auto_error=False)
 
     def require_control_token(
@@ -67,6 +68,10 @@ def create_app(
     @application.get("/v1/wechat/webview-probe", dependencies=[Depends(require_control_token)])
     def wechat_webview_probe() -> dict[str, object]:
         return probe_webview_state(settings.state_dir)
+
+    @application.get("/v1/wechat/history-seed-status", dependencies=[Depends(require_control_token)])
+    def wechat_history_seed_status() -> dict[str, object]:
+        return probe_history_seed_status(settings.state_dir)
 
     @application.get(
         "/v1/public-accounts/{account}/recent",
