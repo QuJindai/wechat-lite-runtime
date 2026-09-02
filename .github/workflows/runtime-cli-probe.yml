@@ -1,0 +1,104 @@
+name: Runtime CLI Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/v1-public-account-discovery
+    paths:
+      - '.github/workflows/runtime-cli-probe.yml'
+      - '.devcontainer/**'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-cli-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WECHAT_IMAGE: ghcr.io/nickrunning/wechat-selkies:0.0.16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare isolated probe state
+        run: |
+          mkdir -p state-runtime-cli-probe /tmp/runtime-cli-probe
+          printf 'WECHAT_IMAGE=%s\n' "$WECHAT_IMAGE" > /tmp/runtime-cli-probe/context.txt
+          printf 'state_dir=state-runtime-cli-probe\n' >> /tmp/runtime-cli-probe/context.txt
+
+      - name: Start real WeChat container
+        run: |
+          docker compose -f .devcontainer/docker-compose.yml up -d wechat
+          cid="$(docker compose -f .devcontainer/docker-compose.yml ps -q wechat)"
+          test -n "$cid"
+          echo "$cid" > /tmp/runtime-cli-probe/container-id.txt
+          for i in $(seq 1 90); do
+            if docker exec "$cid" bash -lc 'timeout 1 bash -c "</dev/tcp/127.0.0.1/3001"' 2>/dev/null; then
+              echo 'port_3001=ready' >> /tmp/runtime-cli-probe/context.txt
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'port_3001=not_ready' >> /tmp/runtime-cli-probe/context.txt
+          exit 1
+
+      - name: Probe Radium and browser process arguments
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          docker exec "$cid" bash -lc 'ps -eo pid,args 2>/dev/null || ps aux' 2>/dev/null \
+            | grep -Ei 'Radium|WMPF|WeChatAppEx|chrome|chromium|cef' \
+            | sed -E 's#(--user-data-dir=)[^ ]+#\1<redacted>#g; s#(--profile-directory=)[^ ]+#\1<redacted>#g; s#(/config/)[^ ]+#\1<redacted>#g' \
+            > /tmp/runtime-cli-probe/processes.txt || true
+
+      - name: Probe listening localhost ports
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          docker exec "$cid" bash -lc 'ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null || cat /proc/net/tcp /proc/net/tcp6 2>/dev/null || true' \
+            | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' \
+            > /tmp/runtime-cli-probe/listeners.txt || true
+
+      - name: Probe Chromium DevTools HTTP endpoints
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          {
+            printf 'candidate_ports=9222,9223,9229,9333,9444\n'
+            for port in 9222 9223 9229 9333 9444; do
+              for endpoint in /json/version /json/list; do
+                body="$(docker exec "$cid" python3 - "$port" "$endpoint" 2>/dev/null <<'PY' || true
+import sys, urllib.request
+port, endpoint = sys.argv[1], sys.argv[2]
+try:
+    with urllib.request.urlopen(f'http://127.0.0.1:{port}{endpoint}', timeout=1) as response:
+        data = response.read(4096).decode('utf-8', errors='replace')
+        print(data)
+except Exception:
+    pass
+PY
+)"
+                if [ -n "$body" ]; then
+                  printf 'CDP_HIT port=%s endpoint=%s\n' "$port" "$endpoint"
+                  printf '%s\n' "$body" \
+                    | sed -E 's#(webSocketDebuggerUrl"[[:space:]]*:[[:space:]]*")[^"]+#\1<redacted>#g'
+                fi
+              done
+            done
+          } > /tmp/runtime-cli-probe/devtools.txt
+
+      - name: Upload sanitized CLI diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-cli-probe
+          path: /tmp/runtime-cli-probe/
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .devcontainer/docker-compose.yml down -v || true
