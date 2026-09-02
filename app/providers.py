@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Protocol
@@ -12,7 +13,14 @@ from app.history_pager import (
     parse_profile_ext_page,
 )
 from app.history_seed import HistorySeed, locate_history_seed
-from app.public_accounts import DiscoveryResult, build_discovery_result, normalize_article
+from app.public_accounts import (
+    ArticleRecord,
+    DiscoveryResult,
+    VerifiedAccountIdentity,
+    build_discovery_result,
+    normalize_account_display_name,
+    normalize_article,
+)
 
 
 class ProviderError(RuntimeError):
@@ -30,8 +38,50 @@ class PublicAccountProvider(Protocol):
     ) -> DiscoveryResult: ...
 
 
+@dataclass(frozen=True)
+class HistoryPageResponse:
+    payload: bytes
+    live_observation: bool = False
+
+
 class HistoryTransport(Protocol):
-    def get(self, url: str) -> bytes: ...
+    def get(self, url: str) -> bytes | HistoryPageResponse: ...
+
+
+def _unwrap_history_response(response: bytes | HistoryPageResponse) -> tuple[bytes, bool]:
+    if isinstance(response, HistoryPageResponse):
+        return response.payload, bool(response.live_observation)
+    if isinstance(response, bytes):
+        return response, False
+    raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_transport_invalid_response")
+
+
+def _verified_records(
+    records: list[ArticleRecord],
+    identity: VerifiedAccountIdentity | None,
+) -> list[ArticleRecord]:
+    if identity is None:
+        return [replace(record, verified_account=False) for record in records]
+    if any(record.biz != identity.biz for record in records):
+        raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
+    return [
+        replace(
+            record,
+            account_name=identity.account_name,
+            verified_account=True,
+        )
+        for record in records
+    ]
+
+
+def _verification_label(*, account_verified: bool, freshness_verified: bool) -> str:
+    if account_verified and freshness_verified:
+        return "public_seed_article+live_offset_zero"
+    if account_verified:
+        return "public_seed_article"
+    if freshness_verified:
+        return "live_offset_zero"
+    return "unverified"
 
 
 class AuthenticatedHistoryProvider:
@@ -51,9 +101,18 @@ class AuthenticatedHistoryProvider:
         account: str,
         limit: int,
         since: datetime | None = None,
+        *,
+        verified_identity: VerifiedAccountIdentity | None = None,
     ) -> DiscoveryResult:
         if limit < 1:
             raise ValueError("limit_must_be_positive")
+        if verified_identity is not None:
+            try:
+                requested_name = normalize_account_display_name(account)
+            except ValueError as exc:
+                raise ProviderError("ACCOUNT_NOT_FOUND", "verified_account_name_mismatch") from exc
+            if requested_name.casefold() != verified_identity.account_name.casefold():
+                raise ProviderError("ACCOUNT_NOT_FOUND", "verified_account_name_mismatch")
 
         seed = self._seed
         if seed is None and self.history_db is not None:
@@ -65,11 +124,13 @@ class AuthenticatedHistoryProvider:
         page_size = min(10, max(1, limit))
         records = []
         max_pages = 100
+        live_offset_zero_observed = False
 
         for _ in range(max_pages):
             private_url = build_page_url(seed, offset=offset, count=page_size)
             try:
-                payload = self.transport.get(private_url)
+                response = self.transport.get(private_url)
+                payload, live_observation = _unwrap_history_response(response)
             except ProviderError:
                 raise
             except Exception as exc:
@@ -85,19 +146,23 @@ class AuthenticatedHistoryProvider:
                 raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_page_invalid") from exc
 
             records.extend(page_records)
-            filtered = records
+            if offset == 0 and live_observation:
+                live_offset_zero_observed = True
+            evidenced_records = _verified_records(records, verified_identity)
+            filtered = evidenced_records
             if since is not None:
                 filtered = [
                     article
-                    for article in records
+                    for article in evidenced_records
                     if article.published_at is not None and article.published_at >= since
                 ]
 
+            account_verified = verified_identity is not None
             result = build_discovery_result(
                 filtered,
                 requested_count=limit,
-                account_verified=True,
-                freshness_verified=True,
+                account_verified=account_verified,
+                freshness_verified=live_offset_zero_observed,
                 is_exhaustive_for_window=False,
                 pagination_cursor=(
                     f"history:{seed.safe_summary()['seed_fingerprint']}:{offset + page_size}"
@@ -105,7 +170,10 @@ class AuthenticatedHistoryProvider:
                     else None
                 ),
                 provider="authenticated_history",
-                verification="authenticated_history_seed",
+                verification=_verification_label(
+                    account_verified=account_verified,
+                    freshness_verified=live_offset_zero_observed,
+                ),
             )
             if result.count_satisfied:
                 return result
@@ -149,9 +217,6 @@ class SyntheticHistoryProvider:
         visited: set[str] = set()
         raw_articles: list[dict[str, object]] = []
         page_count = 0
-        freshness_verified = True
-        account_verified = True
-
         while current is not None:
             if current in visited:
                 raise ProviderError("PAGINATION_INCOMPLETE", "synthetic_pagination_cycle")
@@ -165,10 +230,6 @@ class SyntheticHistoryProvider:
             page_account = str(page.get("account") or "")
             if page_count == 1 and page_account != account:
                 raise ProviderError("ACCOUNT_NOT_FOUND")
-            if page_account and page_account != account:
-                account_verified = False
-
-            freshness_verified = freshness_verified and bool(page.get("freshness_verified", False))
             articles = page.get("articles") or []
             if not isinstance(articles, list):
                 raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "synthetic_articles_invalid")
@@ -194,7 +255,10 @@ class SyntheticHistoryProvider:
                 raise ProviderError("PAGINATION_INCOMPLETE")
             current = next_page
 
-        normalized = [normalize_article(item, position=index + 1) for index, item in enumerate(raw_articles)]
+        normalized = [
+            replace(normalize_article(item, position=index + 1), verified_account=False)
+            for index, item in enumerate(raw_articles)
+        ]
         if since is not None:
             normalized = [
                 article
@@ -205,8 +269,8 @@ class SyntheticHistoryProvider:
         return build_discovery_result(
             normalized,
             requested_count=limit,
-            account_verified=account_verified,
-            freshness_verified=freshness_verified,
+            account_verified=False,
+            freshness_verified=False,
             is_exhaustive_for_window=False,
             pagination_cursor=f"fixture:{page_count}",
             provider="synthetic_history",

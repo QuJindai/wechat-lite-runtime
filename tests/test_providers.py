@@ -17,8 +17,9 @@ def test_synthetic_provider_paginates_deduplicates_and_returns_newest_20():
     assert result.count_satisfied is True
     assert result.timestamps_complete is True
     assert result.urls_unique is True
-    assert result.account_verified is True
-    assert result.freshness_verified is True
+    assert result.account_verified is False
+    assert result.freshness_verified is False
+    assert all(article.verified_account is False for article in result.articles)
     assert result.articles[0].title == "文章 01"
     assert result.articles[-1].title == "文章 20"
     assert result.pagination_cursor == "fixture:2"

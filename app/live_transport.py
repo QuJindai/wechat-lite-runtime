@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from app.credential_scanner import CaptureCandidate
 from app.history_seed import HistorySeed
-from app.providers import ProviderError
+from app.providers import HistoryPageResponse, ProviderError
 
 _ALLOWED_SCHEME = "https"
 _ALLOWED_HOST = "mp.weixin.qq.com"
@@ -204,7 +204,7 @@ class UrllibHistoryTransport:
             method="GET",
         )
 
-    def get(self, url: str) -> bytes:
+    def get(self, url: str) -> HistoryPageResponse:
         request = self._request(url)
         response: ResponseLike | None = None
         try:
@@ -225,7 +225,7 @@ class UrllibHistoryTransport:
                 raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_response_too_large")
             if b"wappoc_appmsgcaptcha" in body.lower():
                 raise ProviderError("LOGIN_REQUIRED", "history_auth_challenge")
-            return body
+            return HistoryPageResponse(payload=body, live_observation=True)
         except ProviderError:
             raise
         except urllib.error.HTTPError as exc:

@@ -6,7 +6,7 @@ import pytest
 
 from app.credential_scanner import CaptureCandidate
 from app.live_transport import UrllibHistoryTransport, history_seed_from_candidate
-from app.providers import ProviderError
+from app.providers import HistoryPageResponse, ProviderError
 
 
 def candidate() -> CaptureCandidate:
@@ -66,9 +66,11 @@ def test_transport_sends_only_same_origin_candidate_context_and_returns_bytes():
 
     transport = UrllibHistoryTransport(candidate(), opener=opener, timeout_seconds=4.0)
     url = history_seed_from_candidate(candidate())._raw_url.replace("offset=0", "offset=10")
-    payload = transport.get(url)
+    response = transport.get(url)
 
-    assert payload == b'{"ret":0}'
+    assert isinstance(response, HistoryPageResponse)
+    assert response.payload == b'{"ret":0}'
+    assert response.live_observation is True
     assert len(seen) == 1
     request, timeout = seen[0]
     assert timeout == 4.0
