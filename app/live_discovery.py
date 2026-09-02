@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 
 from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, WechatURLLauncher, bootstrap_public_account
+from app.account_index import PublicAccountIndex
 from app.credential_scanner import CaptureCandidate, ScanReport, scan_credentials
 from app.history_seed import locate_state_history_seeds
 from app.launcher_bridge import SearchEvidence
@@ -33,6 +34,7 @@ class LiveDiscoveryService:
         scan_fn: ScanFn = scan_credentials,
         ui_timeout_seconds: float = 5.0,
         ui_poll_seconds: float = 0.5,
+        account_index: PublicAccountIndex | None = None,
     ) -> None:
         if ui_timeout_seconds <= 0:
             raise ValueError("ui_timeout_seconds_out_of_range")
@@ -57,6 +59,7 @@ class LiveDiscoveryService:
         self._scan_fn = scan_fn
         self.ui_timeout_seconds = float(ui_timeout_seconds)
         self.ui_poll_seconds = float(ui_poll_seconds)
+        self._account_index = account_index or PublicAccountIndex(self.state_dir)
 
     def __repr__(self) -> str:
         return "LiveDiscoveryService(state_dir='<private>')"
@@ -248,6 +251,12 @@ class LiveDiscoveryService:
             raise ProviderError(last_retryable.code, "all_credential_candidates_failed")
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_not_observed")
 
+    def _remember(self, account_name: str, biz: str) -> None:
+        try:
+            self._account_index.remember(account_name, biz)
+        except (OSError, ValueError):
+            pass
+
     def recent_articles(self, account_name: str, biz: str | None, limit: int) -> DiscoveryResult:
         normalized_account = account_name.strip()
         if not normalized_account:
@@ -256,6 +265,17 @@ class LiveDiscoveryService:
             raise ValueError("limit_out_of_range")
 
         if biz is None:
+            indexed_biz = self._account_index.resolve(normalized_account)
+            if indexed_biz:
+                try:
+                    indexed_result = self._recent_known_biz(normalized_account, indexed_biz, limit)
+                except ProviderError as exc:
+                    if exc.code == "PAGINATION_INCOMPLETE":
+                        raise
+                else:
+                    self._remember(normalized_account, indexed_biz)
+                    return indexed_result
+
             resolved_biz, candidates = self._resolve_biz_by_ui_delta(normalized_account)
             resolved, _saw_login_required, _last_retryable = self._attempt_candidates(
                 candidates,
@@ -264,10 +284,15 @@ class LiveDiscoveryService:
                 limit,
             )
             if resolved is not None:
+                self._remember(normalized_account, resolved_biz)
                 return resolved
-            return self._recent_known_biz(normalized_account, resolved_biz, limit)
+            fallback = self._recent_known_biz(normalized_account, resolved_biz, limit)
+            self._remember(normalized_account, resolved_biz)
+            return fallback
 
         normalized_biz = biz.strip()
         if not normalized_biz or len(normalized_biz) > 256 or any(char.isspace() for char in normalized_biz):
             raise ValueError("invalid_target_biz")
-        return self._recent_known_biz(normalized_account, normalized_biz, limit)
+        result = self._recent_known_biz(normalized_account, normalized_biz, limit)
+        self._remember(normalized_account, normalized_biz)
+        return result
