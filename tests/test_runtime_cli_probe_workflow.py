@@ -59,3 +59,18 @@ def test_runtime_cli_probe_verifies_x11_controller_dependencies_and_wechat_windo
     assert "_NET_WM_NAME" in workflow
     assert "runtime-cli-probe/x11.txt" in workflow
     assert "## X11 capability" in workflow
+
+
+def test_runtime_cli_probe_inspects_linux_wechat_url_handler_and_deep_link_registration():
+    workflow = (ROOT / ".github/workflows/runtime-cli-probe.yml").read_text(encoding="utf-8")
+
+    assert "/usr/share/applications" in workflow
+    assert "com.tencent.WeChat.desktop" in workflow or "WeChat.desktop" in workflow
+    assert "Exec=" in workflow
+    assert "MimeType=" in workflow
+    assert "x-scheme-handler/weixin" in workflow
+    assert "xdg-mime query default x-scheme-handler/weixin" in workflow
+    assert "weixin://" in workflow
+    assert "/opt/wechat" in workflow
+    assert "runtime-cli-probe/url-handler.txt" in workflow
+    assert "## URL handler capability" in workflow
