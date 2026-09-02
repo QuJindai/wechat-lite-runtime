@@ -2,76 +2,119 @@
 
 A lightweight, on-demand GitHub Codespaces runtime for the official Linux WeChat client.
 
-V0 deliberately does not rebuild or redistribute WeChat. It pins the upstream published release `ghcr.io/nickrunning/wechat-selkies:0.0.16` with a small FastAPI control service. The upstream container contains the official Linux WeChat client and exposes it through Selkies WebRTC.
+The runtime pins `ghcr.io/nickrunning/wechat-selkies:0.0.16`, keeps WeChat profile data under `state/ -> /config`, exposes the Selkies UI on `3001`, and runs a private FastAPI control/discovery service on `8787`.
 
-The upstream floating `minimal` tag returned `manifest unknown` during a real GitHub Runner smoke test on 2026-09-02, so V0 intentionally uses the published `0.0.16` full image until a reliable minimal image is available. QQ remains disabled with `AUTO_START_QQ=false`.
+## V0 persistence
 
-Persistent session path: `state/ -> /config`.
+V0 is physically verified: the same Codespace can stop/start while preserving the local WeChat profile and logged-in state. The control API also self-heals after restart.
 
-Physical V0 gate: `scan -> stop -> start -> verify`.
-
-Runtime image: `ghcr.io/nickrunning/wechat-selkies:0.0.16`.
-
-## One-command V0 acceptance
-
-After the first QR scan has completed and the WeChat profile exists:
+V0 acceptance commands remain available:
 
 ```bash
 python -m app.acceptance before
-```
-
-Stop the Codespace, start the same Codespace again, then run:
-
-```bash
 python -m app.acceptance after
 ```
 
-The helper records only aggregate storage counts and runtime readiness. It never reads or prints WeChat database contents, cookies, filenames, contacts, messages, or QR data.
+No manual `WECHAT_CONTROL_TOKEN` setup is required. If no explicit secret is supplied, the runtime creates a random token at `state/.control-token` with mode `0600` and reuses it after restart.
 
-Expected automated verdict after restart:
+## V1 public-account discovery
 
-- `STORAGE_PASS_AUTH_PENDING` — persistent state survived and WeChat Web UI is ready; open the UI and confirm the account is still logged in.
-- `RUNTIME_NOT_READY` — the state exists but the WeChat Web UI is not listening yet.
-- `STATE_LOST` — the persistent acceptance marker or initialized profile is missing.
+V1 lives on `feat/v1-public-account-discovery` and uses the already logged-in official Linux WeChat runtime. Session material remains inside `state/` and process memory.
 
-## Open or resume the V0 Codespace
+The preferred API is:
 
-[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1)
+```text
+POST /v1/public-accounts/discover
+```
 
-The `quickstart=1` link resumes your most recent matching Codespace when available; otherwise it opens the create-Codespace page for the V0 feature branch.
+Minimal body:
 
-**Important after this networking/image fix:** if you already created a Codespace before commit `0d439822`, rebuild the container once so the updated `.devcontainer` networking is applied. GitHub Codespaces does not apply changed dev-container port configuration to an already-created container until it is rebuilt.
+```json
+{
+  "account_name": "目标公众号",
+  "limit": 20
+}
+```
 
-## Control-token behavior
+`biz` is optional. When it is already known it can be provided to skip identity resolution:
 
-No manual secret setup is required for V0. If `WECHAT_CONTROL_TOKEN` is not provided, the runtime creates a cryptographically random token at `state/.control-token` with mode `0600` and reuses it after Codespace stop/start.
+```json
+{
+  "account_name": "目标公众号",
+  "biz": "PUBLIC_BIZ_ID",
+  "limit": 20
+}
+```
 
-If you explicitly configure `WECHAT_CONTROL_TOKEN` as a Codespaces secret, that value takes precedence and no local token file is created.
+The runtime attempts discovery in this order:
 
-## V1 public-account discovery: safe probe
+1. persisted public-account name -> biz index, when available
+2. matching private Chromium History seed already observed by WeChat
+3. authenticated WebView credential candidates
+4. URL bootstrap through the internal WeChat-container bridge
+5. evidence-gated X11 search fallback
 
-V1 development lives on `feat/v1-public-account-discovery`. The first physical step intentionally does **not** read or export message bodies, cookies, browser session tokens, QR data, raw database rows or encryption keys. It only classifies candidate runtime artifacts and returns sanitized aggregate roots/counts.
+The X11 fallback only navigates the existing WeChat window by keyboard. It does not read chats, export contacts, read the clipboard, click chat content, or send messages. Navigation is not treated as success until matching public-account credential evidence appears.
 
-After switching the existing logged-in Codespace to the V1 branch, run:
+## Name-to-biz index
+
+After a successful discovery, the runtime saves a non-sensitive mapping in:
+
+```text
+state/.public-account-index.json
+```
+
+It stores only a normalized public-account display name and public `biz` identifier. The file is mode `0600` and contains no cookie, `key`, `pass_ticket`, `appmsg_token`, request URL, message, contact or browser-session value. Subsequent name-only requests can therefore avoid repeated UI search.
+
+## Newest-20 acceptance
+
+The final V1 gate has a dedicated endpoint:
+
+```text
+POST /v1/public-accounts/acceptance
+```
+
+Body:
+
+```json
+{
+  "account_name": "目标公众号"
+}
+```
+
+An optional `biz` may also be supplied. The endpoint always requests 20 articles and checks:
+
+- exactly 20 articles
+- count satisfied
+- all timestamps present
+- unique canonical URLs
+- account identity verified
+- freshness verified
+
+If those automated checks pass, the verdict is:
+
+```text
+AUTOMATED_GATE_PASS_UI_PENDING
+```
+
+The response includes only the first and twentieth article's public metadata for the final WeChat UI cross-check. Until that real logged-in cross-check is completed, `V1_REAL_NEWEST20` remains pending.
+
+## Security boundary
+
+Allowed outside the private runtime: public-account name, public biz identifier, article title, canonical article URL, publication time, order and completeness/verification flags.
+
+Not exposed: cookies, bearer/session tokens, `key`, `pass_ticket`, `appmsg_token`, raw History rows, browser-profile files, QR contents, contacts, chats, request headers or encryption keys.
+
+The internal workspace-to-WeChat launcher bridge listens only on `127.0.0.1:8790`; it is not forwarded through Codespaces.
+
+## Diagnostic probes
+
+The structural probes remain available for development:
 
 ```bash
 bash scripts/probe-wechat-state.sh
-```
-
-The command self-heals the local control API, reads the private control token only inside the process, calls `127.0.0.1:8787/v1/wechat/probe`, and prints sanitized JSON. It does not print cookies, auth tokens, raw WeChat database contents, contacts or messages.
-
-The probe result is used to choose the concrete authenticated WebView/history extraction path. Real session-reading code is not enabled until the sanitized probe establishes which artifact classes are actually present.
-
-## V1 Phase B: WebView container probe
-
-The Phase A physical probe confirmed that `.xwechat/radium/web` contains WebView cache, cookie-store candidates and `mp.weixin.qq.com` traces. Phase B narrows that evidence to concrete Chromium profile containers without returning secret values.
-
-Run:
-
-```bash
 bash scripts/probe-wechat-webview.sh
+bash scripts/probe-history-seed.sh
 ```
 
-The output contains only sanitized profile/container paths, container classes, safe SQLite schema names, and fixed marker counts for `mp.weixin.qq.com`, `__biz`, `pass_ticket`, and `appmsg_token`. It does not return cookie or token values, Local Storage values, database rows, messages, contacts, request headers, QR content, or encryption keys.
-
-The result selects the concrete authenticated history implementation: Local Storage LevelDB, a standard cookie/history SQLite path, or a GUI-guided fallback if no suitable WebView container is present.
+They return sanitized structure/status only and do not print session values.
