@@ -155,13 +155,10 @@ class LiveDiscoveryService:
             raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_navigator_unavailable")
 
         baseline = self._scan(None)
-        baseline_mtime: dict[str, float] = {}
-        for candidate in baseline.candidates:
-            fingerprint = self._candidate_fingerprint(candidate)
-            baseline_mtime[fingerprint] = max(
-                baseline_mtime.get(fingerprint, float("-inf")),
-                candidate.modified_at,
-            )
+        baseline_fingerprints = {
+            self._candidate_fingerprint(candidate)
+            for candidate in baseline.candidates
+        }
 
         try:
             evidence = self._ui_navigator.search_public_account(account_name)
@@ -180,8 +177,7 @@ class LiveDiscoveryService:
                 except ProviderError:
                     continue
                 fingerprint = self._candidate_fingerprint(candidate)
-                previous_mtime = baseline_mtime.get(fingerprint)
-                if previous_mtime is None or candidate.modified_at > previous_mtime:
+                if fingerprint not in baseline_fingerprints:
                     newly_observed.append(candidate)
 
             grouped: dict[str, list[CaptureCandidate]] = {}
@@ -261,7 +257,7 @@ class LiveDiscoveryService:
 
         if biz is None:
             resolved_biz, candidates = self._resolve_biz_by_ui_delta(normalized_account)
-            resolved, saw_login_required, last_retryable = self._attempt_candidates(
+            resolved, _saw_login_required, _last_retryable = self._attempt_candidates(
                 candidates,
                 normalized_account,
                 resolved_biz,
@@ -269,8 +265,6 @@ class LiveDiscoveryService:
             )
             if resolved is not None:
                 return resolved
-            if saw_login_required and last_retryable is not None:
-                return self._recent_known_biz(normalized_account, resolved_biz, limit)
             return self._recent_known_biz(normalized_account, resolved_biz, limit)
 
         normalized_biz = biz.strip()
