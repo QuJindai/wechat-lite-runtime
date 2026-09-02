@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import io
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -8,7 +8,7 @@ from app.seed_article import SeedArticleResolver, SeedResolutionError
 
 
 class FakeResponse:
-    def __init__(self, body: bytes, *, status: int = 200, url: str = "https://mp.weixin.qq.com/s/AbCd") -> None:
+    def __init__(self, body: bytes, *, status: int = 200, url: str = "https://mp.weixin.qq.com/s/AbCd?nwr_flag=1") -> None:
         self._body = body
         self.status = status
         self._url = url
@@ -34,6 +34,24 @@ def test_seed_resolver_extracts_account_and_biz_without_returning_private_materi
     assert identity.canonical_url == "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"
     rendered = repr(identity.safe_summary()) + repr(identity)
     assert "DO_NOT_RETURN" not in rendered
+
+
+def test_seed_resolver_supports_real_wechat_htmldecode_nickname_and_requests_nwr_flag():
+    seen = {}
+    page = '''<script>var nickname = htmlDecode("dSPACE德斯拜思"); var biz = "Mzg2Mzg3NzgxNw==";</script>'''.encode("utf-8")
+
+    def opener(req, timeout):
+        seen["url"] = req.full_url
+        return FakeResponse(page, url=req.full_url)
+
+    identity = SeedArticleResolver(opener=opener).resolve(
+        "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"
+    )
+    assert identity.account_name == "dSPACE德斯拜思"
+    assert identity.biz == "Mzg2Mzg3NzgxNw=="
+    query = parse_qs(urlsplit(seen["url"]).query)
+    assert query["nwr_flag"] == ["1"]
+    assert identity.canonical_url == "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"
 
 
 def test_seed_resolver_rejects_non_wechat_hosts_before_network_call():
