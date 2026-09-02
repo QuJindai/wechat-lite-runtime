@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.history_pager import build_page_url, parse_profile_ext_page
-from app.history_seed import locate_history_seed
+from app.history_seed import HistorySeed, locate_history_seed
 from app.public_accounts import DiscoveryResult, build_discovery_result, normalize_article
 
 
@@ -30,9 +30,16 @@ class HistoryTransport(Protocol):
 
 
 class AuthenticatedHistoryProvider:
-    def __init__(self, history_db: Path, transport: HistoryTransport) -> None:
-        self.history_db = Path(history_db)
+    def __init__(
+        self,
+        history_db: Path | None,
+        transport: HistoryTransport,
+        *,
+        seed: HistorySeed | None = None,
+    ) -> None:
+        self.history_db = Path(history_db) if history_db is not None else None
         self.transport = transport
+        self._seed = seed
 
     def recent_articles(
         self,
@@ -43,7 +50,9 @@ class AuthenticatedHistoryProvider:
         if limit < 1:
             raise ValueError("limit_must_be_positive")
 
-        seed = locate_history_seed(self.history_db)
+        seed = self._seed
+        if seed is None and self.history_db is not None:
+            seed = locate_history_seed(self.history_db)
         if seed is None:
             raise ProviderError("HISTORY_SURFACE_UNAVAILABLE")
 
