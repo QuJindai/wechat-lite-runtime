@@ -32,6 +32,13 @@ def test_seed_resolver_extracts_account_and_biz_without_returning_private_materi
     assert identity.account_name == "dSPACE德斯拜思"
     assert identity.biz == "Mzg2Mzg3NzgxNw=="
     assert identity.canonical_url == "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"
+    verified = identity.to_verified_identity()
+    assert verified.safe_summary() == {
+        "account_name": "dSPACE德斯拜思",
+        "biz": "Mzg2Mzg3NzgxNw==",
+        "provenance": "public_seed_article",
+        "canonical_seed_url": "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g",
+    }
     rendered = repr(identity.safe_summary()) + repr(identity)
     assert "DO_NOT_RETURN" not in rendered
 

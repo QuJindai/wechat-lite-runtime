@@ -94,7 +94,7 @@ def _article_raw(
         "published_at": published_at,
         "observed_at": observed_at,
         "source": "authenticated_wechat",
-        "verified_account": True,
+        "verified_account": False,
     }
 
 

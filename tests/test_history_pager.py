@@ -60,7 +60,7 @@ def test_parse_profile_ext_page_normalizes_main_and_multi_articles():
     assert [record.title for record in records] == ["Article 1", "Article 1B", "Article 2"]
     assert all(record.account_name == "Example Account" for record in records)
     assert all(record.biz == "BIZPUB" for record in records)
-    assert all(record.verified_account is True for record in records)
+    assert all(record.verified_account is False for record in records)
     assert all(record.published_at is not None for record in records)
     rendered = json.dumps([record.to_dict() for record in records], ensure_ascii=False)
     for secret in ["SECRET1", "SECRET1B", "SECRET2", "PASS1"]:

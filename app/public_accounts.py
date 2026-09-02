@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Mapping, Sequence
@@ -20,6 +21,53 @@ _SENSITIVE_QUERY_KEYS = {
     "sessionid",
     "scene",
 }
+
+
+def normalize_account_display_name(value: str) -> str:
+    if any(ord(char) < 32 for char in value):
+        raise ValueError("invalid_account_name")
+    normalized = unicodedata.normalize("NFKC", value.strip())
+    collapsed = " ".join(normalized.split())
+    if not collapsed or len(collapsed) > 256:
+        raise ValueError("invalid_account_name")
+    return collapsed
+
+
+@dataclass(frozen=True, repr=False)
+class VerifiedAccountIdentity:
+    account_name: str
+    biz: str
+    provenance: str
+    canonical_seed_url: str
+
+    def __post_init__(self) -> None:
+        account_name = normalize_account_display_name(self.account_name)
+        biz = self.biz.strip()
+        if not biz or len(biz) > 256 or any(char.isspace() for char in biz):
+            raise ValueError("invalid_target_biz")
+        if self.provenance != "public_seed_article":
+            raise ValueError("invalid_identity_provenance")
+        try:
+            parsed = urlsplit(self.canonical_seed_url.strip())
+            if parsed.path != "/s" and not parsed.path.startswith("/s/"):
+                raise ValueError
+            canonical_seed_url = canonicalize_mp_url(self.canonical_seed_url)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("invalid_seed_url") from exc
+        object.__setattr__(self, "account_name", account_name)
+        object.__setattr__(self, "biz", biz)
+        object.__setattr__(self, "canonical_seed_url", canonical_seed_url)
+
+    def safe_summary(self) -> dict[str, str]:
+        return {
+            "account_name": self.account_name,
+            "biz": self.biz,
+            "provenance": self.provenance,
+            "canonical_seed_url": self.canonical_seed_url,
+        }
+
+    def __repr__(self) -> str:
+        return f"VerifiedAccountIdentity({self.safe_summary()!r})"
 
 
 @dataclass(frozen=True)

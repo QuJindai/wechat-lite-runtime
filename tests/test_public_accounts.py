@@ -1,12 +1,57 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from app.public_accounts import (
     ArticleRecord,
+    VerifiedAccountIdentity,
     build_discovery_result,
     canonicalize_mp_url,
+    normalize_account_display_name,
     normalize_article,
     redact_sensitive_text,
 )
+
+
+def test_verified_identity_normalizes_public_display_name_and_canonical_seed_url():
+    identity = VerifiedAccountIdentity(
+        account_name="  dSPACE\u3000 德斯拜思  ",
+        biz="Mzg2Mzg3NzgxNw==",
+        provenance="public_seed_article",
+        canonical_seed_url="https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g?scene=1&key=SECRET",
+    )
+
+    assert identity.account_name == "dSPACE 德斯拜思"
+    assert identity.biz == "Mzg2Mzg3NzgxNw=="
+    assert identity.provenance == "public_seed_article"
+    assert identity.canonical_seed_url == "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"
+    assert normalize_account_display_name("  Ｅｘａｍｐｌｅ　 Account ") == "Example Account"
+    assert "SECRET" not in repr(identity)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_code"),
+    [
+        ("account_name", "", "invalid_account_name"),
+        ("biz", "BAD BIZ", "invalid_target_biz"),
+        ("provenance", "caller_input", "invalid_identity_provenance"),
+        ("canonical_seed_url", "https://example.com/s/PRIVATE", "invalid_seed_url"),
+    ],
+)
+def test_verified_identity_rejects_invalid_evidence_without_echoing_values(field, value, expected_code):
+    values = {
+        "account_name": "Example Account",
+        "biz": "BIZ_PUBLIC",
+        "provenance": "public_seed_article",
+        "canonical_seed_url": "https://mp.weixin.qq.com/s/example",
+    }
+    values[field] = value
+
+    with pytest.raises(ValueError) as exc:
+        VerifiedAccountIdentity(**values)
+
+    assert str(exc.value) == expected_code
+    assert "PRIVATE" not in str(exc.value)
 
 
 def test_canonicalize_mp_url_strips_auth_bearing_query_values():

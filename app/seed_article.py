@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from app.public_accounts import canonicalize_mp_url
+from app.public_accounts import VerifiedAccountIdentity, canonicalize_mp_url
 
 _ALLOWED_HOST = "mp.weixin.qq.com"
 _MAX_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -31,6 +31,14 @@ class SeedIdentity:
 
     def safe_summary(self) -> dict[str, str]:
         return {"account_name": self.account_name, "biz": self.biz, "canonical_url": self.canonical_url}
+
+    def to_verified_identity(self) -> VerifiedAccountIdentity:
+        return VerifiedAccountIdentity(
+            account_name=self.account_name,
+            biz=self.biz,
+            provenance="public_seed_article",
+            canonical_seed_url=self.canonical_url,
+        )
 
     def __repr__(self) -> str:
         return f"SeedIdentity({self.safe_summary()!r})"
