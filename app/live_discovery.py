@@ -1,17 +1,24 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, WechatURLLauncher, bootstrap_public_account
-from app.credential_scanner import CaptureCandidate
+from app.credential_scanner import CaptureCandidate, ScanReport, scan_credentials
 from app.history_seed import locate_state_history_seeds
+from app.launcher_bridge import SearchEvidence
 from app.live_transport import UrllibHistoryTransport, candidate_from_history_seed, history_seed_from_candidate
 from app.providers import AuthenticatedHistoryProvider, HistoryTransport, ProviderError
 from app.public_accounts import DiscoveryResult
 
 Bootstrapper = Callable[[str], BootstrapResult]
 TransportFactory = Callable[[CaptureCandidate], HistoryTransport]
+ScanFn = Callable[..., ScanReport]
+
+
+class PublicAccountNavigator(Protocol):
+    def search_public_account(self, account_name: str) -> SearchEvidence: ...
 
 
 class LiveDiscoveryService:
@@ -22,7 +29,15 @@ class LiveDiscoveryService:
         bootstrapper: Bootstrapper | None = None,
         transport_factory: TransportFactory | None = None,
         launcher: WechatURLLauncher | None = None,
+        ui_navigator: PublicAccountNavigator | None = None,
+        scan_fn: ScanFn = scan_credentials,
+        ui_timeout_seconds: float = 5.0,
+        ui_poll_seconds: float = 0.5,
     ) -> None:
+        if ui_timeout_seconds <= 0:
+            raise ValueError("ui_timeout_seconds_out_of_range")
+        if ui_poll_seconds < 0:
+            raise ValueError("ui_poll_seconds_out_of_range")
         self.state_dir = Path(state_dir)
         if bootstrapper is None:
             active_launcher = launcher or SubprocessWechatURLLauncher()
@@ -38,6 +53,10 @@ class LiveDiscoveryService:
         else:
             self._bootstrapper = bootstrapper
         self._transport_factory = transport_factory or (lambda candidate: UrllibHistoryTransport(candidate))
+        self._ui_navigator = ui_navigator
+        self._scan_fn = scan_fn
+        self.ui_timeout_seconds = float(ui_timeout_seconds)
+        self.ui_poll_seconds = float(ui_poll_seconds)
 
     def __repr__(self) -> str:
         return "LiveDiscoveryService(state_dir='<private>')"
@@ -89,6 +108,36 @@ class LiveDiscoveryService:
                 raise
         return None, saw_login_required, last_retryable
 
+    def _ui_search_candidates(self, account_name: str, target_biz: str) -> list[CaptureCandidate]:
+        if self._ui_navigator is None:
+            return []
+        try:
+            evidence = self._ui_navigator.search_public_account(account_name)
+        except (ValueError, OSError):
+            return []
+        if not evidence.dispatch_attempted or not evidence.search_submitted:
+            return []
+
+        web_root = self.state_dir / ".xwechat" / "radium" / "web"
+        deadline = time.monotonic() + self.ui_timeout_seconds
+        while True:
+            report = self._scan_fn(
+                target_biz,
+                roots=[web_root],
+                since_minutes=60,
+                max_files=5000,
+                max_total_bytes=512 * 1024 * 1024,
+                max_directories=20_000,
+                max_scan_seconds=min(3.0, self.ui_timeout_seconds),
+            )
+            candidates = self._valid_candidates(report.candidates, target_biz)
+            if candidates:
+                return candidates
+            if time.monotonic() >= deadline:
+                return []
+            if self.ui_poll_seconds:
+                time.sleep(min(self.ui_poll_seconds, max(0.0, deadline - time.monotonic())))
+
     def recent_articles(self, account_name: str, biz: str, limit: int) -> DiscoveryResult:
         normalized_account = account_name.strip()
         normalized_biz = biz.strip()
@@ -129,9 +178,21 @@ class LiveDiscoveryService:
         )
         if refreshed is not None:
             return refreshed
-
         saw_login_required = saw_login_required or refresh_login_required
         last_retryable = refresh_error or last_retryable
+
+        ui_candidates = self._ui_search_candidates(normalized_account, normalized_biz)
+        ui_result, ui_login_required, ui_error = self._attempt_candidates(
+            ui_candidates,
+            normalized_account,
+            normalized_biz,
+            limit,
+        )
+        if ui_result is not None:
+            return ui_result
+        saw_login_required = saw_login_required or ui_login_required
+        last_retryable = ui_error or last_retryable
+
         if saw_login_required:
             raise ProviderError("LOGIN_REQUIRED", "all_credential_candidates_stale")
         if last_retryable is not None:
