@@ -1,0 +1,41 @@
+name: Seed Article Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/v1-public-account-discovery
+    paths:
+      - 'app/seed_article.py'
+      - '.github/workflows/seed-article-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-public-seed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve real public WeChat seed
+        run: |
+          python - <<'PY'
+          from app.seed_article import SeedArticleResolver
+
+          identity = SeedArticleResolver(timeout_seconds=20).resolve(
+              'https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g'
+          )
+          summary = identity.safe_summary()
+          print({
+              'account_name': summary['account_name'],
+              'biz_matches': summary['biz'] == 'Mzg2Mzg3NzgxNw==',
+              'canonical_url': summary['canonical_url'],
+          })
+          assert summary['account_name'] == 'dSPACE德斯拜思', summary
+          assert summary['biz'] == 'Mzg2Mzg3NzgxNw==', summary
+          assert summary['canonical_url'] == 'https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g', summary
+          PY
