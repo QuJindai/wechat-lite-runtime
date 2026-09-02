@@ -28,7 +28,7 @@ class BootstrapRequest(BaseModel):
 
 class DiscoverRequest(BaseModel):
     account_name: str = Field(min_length=1, max_length=256)
-    biz: str = Field(min_length=1, max_length=256)
+    biz: str | None = Field(default=None, min_length=1, max_length=256)
     limit: int = Field(default=20, ge=1, le=100)
 
 
@@ -39,7 +39,7 @@ def create_app(
     account_bootstrapper: AccountBootstrapper | None = None,
     live_discovery_service: LiveDiscoveryService | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.8.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.9.0")
     bearer = HTTPBearer(auto_error=False)
 
     bridge_launcher = (
@@ -83,14 +83,20 @@ def create_app(
         error_status = {
             "LOGIN_REQUIRED": status.HTTP_409_CONFLICT,
             "ACCOUNT_NOT_FOUND": status.HTTP_404_NOT_FOUND,
+            "ACCOUNT_IDENTITY_AMBIGUOUS": status.HTTP_409_CONFLICT,
             "HISTORY_SURFACE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
             "PAGINATION_INCOMPLETE": status.HTTP_502_BAD_GATEWAY,
         }.get(exc.code, status.HTTP_502_BAD_GATEWAY)
+        safe_message = (
+            "account_identity_ambiguous"
+            if exc.code == "ACCOUNT_IDENTITY_AMBIGUOUS"
+            else redact_sensitive_text(str(exc))
+        )
         raise HTTPException(
             status_code=error_status,
             detail={
                 "code": exc.code,
-                "message": redact_sensitive_text(str(exc)),
+                "message": safe_message,
             },
         ) from exc
 
