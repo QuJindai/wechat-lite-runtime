@@ -42,7 +42,17 @@ def _is_profile_ext_url(value: str) -> bool:
     )
 
 
-def locate_history_seed(history_db: Path) -> HistorySeed | None:
+def _matches_target_biz(value: str, target_biz: str | None) -> bool:
+    if target_biz is None:
+        return True
+    try:
+        query = parse_qs(urlsplit(value).query, keep_blank_values=True)
+    except ValueError:
+        return False
+    return (query.get("__biz") or [""])[0] == target_biz
+
+
+def locate_history_seed(history_db: Path, target_biz: str | None = None) -> HistorySeed | None:
     if not history_db.is_file():
         return None
 
@@ -52,7 +62,7 @@ def locate_history_seed(history_db: Path) -> HistorySeed | None:
         rows = connection.execute(
             "SELECT url, title, last_visit_time FROM urls "
             "WHERE url LIKE 'https://mp.weixin.qq.com/%' "
-            "ORDER BY last_visit_time DESC LIMIT 100"
+            "ORDER BY last_visit_time DESC LIMIT 500"
         ).fetchall()
     except (sqlite3.Error, OSError):
         return None
@@ -64,12 +74,40 @@ def locate_history_seed(history_db: Path) -> HistorySeed | None:
         value = str(raw_url or "")
         if not _is_profile_ext_url(value):
             continue
+        if not _matches_target_biz(value, target_biz):
+            continue
         return HistorySeed(
             _raw_url=value,
             title=str(title or ""),
             last_visit_time=int(last_visit_time or 0),
         )
     return None
+
+
+def locate_state_history_seeds(
+    state_dir: Path,
+    target_biz: str,
+    *,
+    max_candidates: int = 10,
+) -> list[HistorySeed]:
+    target = target_biz.strip()
+    if not target or len(target) > 256 or any(char.isspace() for char in target):
+        raise ValueError("invalid_target_biz")
+    if max_candidates < 1:
+        raise ValueError("max_candidates_out_of_range")
+
+    profiles_root = Path(state_dir) / ".xwechat" / "radium" / "web" / "profiles"
+    seeds: list[HistorySeed] = []
+    if profiles_root.is_dir():
+        for profile_dir in sorted(profiles_root.iterdir(), key=lambda path: path.name):
+            if not profile_dir.is_dir():
+                continue
+            seed = locate_history_seed(profile_dir / "History", target)
+            if seed is not None:
+                seeds.append(seed)
+
+    seeds.sort(key=lambda item: item.last_visit_time, reverse=True)
+    return seeds[:max_candidates]
 
 
 def _sanitize_profile_name(name: str) -> str:
