@@ -4,7 +4,7 @@ import hashlib
 import urllib.error
 import urllib.request
 from typing import Callable, Protocol
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
 from app.credential_scanner import CaptureCandidate
 from app.history_seed import HistorySeed
@@ -13,6 +13,7 @@ from app.providers import ProviderError
 _ALLOWED_SCHEME = "https"
 _ALLOWED_HOST = "mp.weixin.qq.com"
 _ALLOWED_PATH = "/mp/profile_ext"
+_ALLOWED_CREDENTIAL_PATHS = {"/mp/profile_ext", "/mp/relatedsearchword"}
 _FIELD_TO_QUERY = {
     "biz": "__biz",
     "uin": "uin",
@@ -21,6 +22,9 @@ _FIELD_TO_QUERY = {
     "appmsg_token": "appmsg_token",
     "poc_sid": "poc_sid",
     "poc_token": "poc_token",
+    "mid": "mid",
+    "idx": "idx",
+    "sessionid": "sessionid",
 }
 
 
@@ -46,7 +50,7 @@ def _parsed_query(url: str) -> tuple[object, dict[str, list[str]]]:
     return parsed, query
 
 
-def _validate_endpoint(url: str) -> tuple[object, dict[str, list[str]]]:
+def _validate_history_endpoint(url: str) -> tuple[object, dict[str, list[str]]]:
     parsed, query = _parsed_query(url)
     if (
         parsed.scheme != _ALLOWED_SCHEME
@@ -57,8 +61,19 @@ def _validate_endpoint(url: str) -> tuple[object, dict[str, list[str]]]:
     return parsed, query
 
 
-def _candidate_context(candidate: CaptureCandidate) -> dict[str, str]:
-    _parsed, query = _validate_endpoint(candidate.request_url)
+def _validate_credential_source(url: str) -> tuple[object, dict[str, list[str]]]:
+    parsed, query = _parsed_query(url)
+    if (
+        parsed.scheme != _ALLOWED_SCHEME
+        or parsed.hostname != _ALLOWED_HOST
+        or parsed.path not in _ALLOWED_CREDENTIAL_PATHS
+    ):
+        raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_source_not_allowed")
+    return parsed, query
+
+
+def _candidate_context(candidate: CaptureCandidate) -> tuple[str, dict[str, str]]:
+    parsed, query = _validate_credential_source(candidate.request_url)
     context: dict[str, str] = {}
     for field_name, query_name in _FIELD_TO_QUERY.items():
         value = candidate.fields.get(field_name, "")
@@ -70,25 +85,36 @@ def _candidate_context(candidate: CaptureCandidate) -> dict[str, str]:
         context[query_name] = value
 
     biz = context.get("__biz", "")
-    legacy_ready = all(context.get(name) for name in ("uin", "key", "pass_ticket"))
-    token_ready = all(context.get(name) for name in ("appmsg_token", "pass_ticket"))
-    if not biz or not (legacy_ready or token_ready):
+    if parsed.path == "/mp/relatedsearchword":
+        required = ("__biz", "uin", "key", "pass_ticket", "appmsg_token", "mid", "idx", "sessionid")
+        ready = all(context.get(name) for name in required)
+    else:
+        legacy_ready = all(context.get(name) for name in ("uin", "key", "pass_ticket"))
+        token_ready = all(context.get(name) for name in ("appmsg_token", "pass_ticket"))
+        ready = legacy_ready or token_ready
+    if not biz or not ready:
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_incomplete")
-    return context
+    return str(parsed.path), context
 
 
 def history_seed_from_candidate(candidate: CaptureCandidate) -> HistorySeed:
-    _candidate_context(candidate)
+    source_path, context = _candidate_context(candidate)
+    if source_path == _ALLOWED_PATH:
+        raw_url = candidate.request_url
+    else:
+        pairs = [(name, value) for name, value in context.items()]
+        pairs.extend([("action", "home"), ("scene", "124")])
+        raw_url = urlunsplit(("https", _ALLOWED_HOST, _ALLOWED_PATH, urlencode(pairs), ""))
     return HistorySeed(
-        _raw_url=candidate.request_url,
+        _raw_url=raw_url,
         title="authenticated-webview",
         last_visit_time=int(candidate.modified_at),
     )
 
 
 def _validate_request_context(candidate: CaptureCandidate, url: str) -> None:
-    _parsed, query = _validate_endpoint(url)
-    context = _candidate_context(candidate)
+    _parsed, query = _validate_history_endpoint(url)
+    _source_path, context = _candidate_context(candidate)
     if (query.get("action") or [""])[0] != "getmsg":
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_action_not_allowed")
     for query_name, expected in context.items():
@@ -133,7 +159,7 @@ class UrllibHistoryTransport:
         if max_response_bytes < 1:
             raise ValueError("max_response_bytes_out_of_range")
         self._candidate = candidate
-        self._context = _candidate_context(candidate)
+        _source_path, self._context = _candidate_context(candidate)
         self._opener = opener
         self.timeout_seconds = float(timeout_seconds)
         self.max_response_bytes = int(max_response_bytes)
@@ -180,6 +206,8 @@ class UrllibHistoryTransport:
             body = response.read(self.max_response_bytes + 1)
             if len(body) > self.max_response_bytes:
                 raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_response_too_large")
+            if b"wappoc_appmsgcaptcha" in body.lower():
+                raise ProviderError("LOGIN_REQUIRED", "history_auth_challenge")
             return body
         except ProviderError:
             raise
