@@ -7,7 +7,8 @@ import pytest
 from app.account_bootstrap import BootstrapResult, LaunchEvidence
 from app.credential_scanner import CaptureCandidate
 from app.live_discovery import LiveDiscoveryService
-from app.providers import ProviderError
+from app.providers import HistoryPageResponse, ProviderError
+from app.public_accounts import VerifiedAccountIdentity
 
 
 def make_candidate(key: str, modified_at: float, biz: str = "BIZ_PUBLIC") -> CaptureCandidate:
@@ -60,9 +61,12 @@ class MemoryTransport:
         self.pages = pages
         self.urls = []
 
-    def get(self, url: str) -> bytes:
+    def get(self, url: str) -> HistoryPageResponse:
         self.urls.append(url)
-        return self.pages[int(parse_qs(urlsplit(url).query)["offset"][0])]
+        return HistoryPageResponse(
+            payload=self.pages[int(parse_qs(urlsplit(url).query)["offset"][0])],
+            live_observation=True,
+        )
 
 
 def test_live_service_bootstraps_selects_newest_matching_candidate_and_returns_20(tmp_path: Path):
@@ -93,8 +97,9 @@ def test_live_service_bootstraps_selects_newest_matching_candidate_and_returns_2
     assert result.count_satisfied is True
     assert result.timestamps_complete is True
     assert result.urls_unique is True
-    assert result.account_verified is True
+    assert result.account_verified is False
     assert result.freshness_verified is True
+    assert not (tmp_path / ".public-account-index.json").exists()
     assert [int(parse_qs(urlsplit(url).query)["offset"][0]) for url in memory.urls] == [0, 10]
     rendered = json.dumps(result.to_dict(), ensure_ascii=False) + repr(service)
     for secret in ["OLD_SECRET", "NEW_SECRET", "UIN_SECRET", "PASS_SECRET", "ARTICLE_SECRET"]:
@@ -132,5 +137,16 @@ def test_live_service_rejects_response_articles_from_wrong_biz(tmp_path: Path):
         transport_factory=lambda candidate: MemoryTransport({0: wrong_body}),
     )
     with pytest.raises(ProviderError) as exc:
-        service.recent_articles("Example", "BIZ_PUBLIC", 20)
+        service.recent_articles(
+            "Example",
+            "BIZ_PUBLIC",
+            20,
+            verified_identity=VerifiedAccountIdentity(
+                account_name="Example",
+                biz="BIZ_PUBLIC",
+                provenance="public_seed_article",
+                canonical_seed_url="https://mp.weixin.qq.com/s/public-seed",
+            ),
+        )
     assert exc.value.code == "ACCOUNT_NOT_FOUND"
+    assert not (tmp_path / ".public-account-index.json").exists()

@@ -33,12 +33,12 @@ def result20():
             "url": f"https://mp.weixin.qq.com/s?__biz=BIZ_PUBLIC&mid={1000+i}&idx=1&sn=SN{i+1}&key=SECRET",
             "published_at": 1788307200 - i * 3600,
             "observed_at": "2026-09-02T22:00:00+08:00",
-            "verified_account": True,
+            "verified_account": False,
         }, i + 1))
     return build_discovery_result(
         records,
         requested_count=20,
-        account_verified=True,
+        account_verified=False,
         freshness_verified=True,
         is_exhaustive_for_window=False,
         provider="live_authenticated_history",
@@ -77,7 +77,7 @@ def test_live_discover_endpoint_runs_one_call_and_returns_sanitized_20(tmp_path:
     assert body["count_satisfied"] is True
     assert body["timestamps_complete"] is True
     assert body["urls_unique"] is True
-    assert body["account_verified"] is True
+    assert body["account_verified"] is False
     assert body["freshness_verified"] is True
     assert "key=SECRET" not in response.text
 

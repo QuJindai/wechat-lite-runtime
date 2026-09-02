@@ -11,7 +11,7 @@ from app.history_seed import locate_state_history_seeds
 from app.launcher_bridge import SearchEvidence
 from app.live_transport import UrllibHistoryTransport, candidate_from_history_seed, history_seed_from_candidate
 from app.providers import AuthenticatedHistoryProvider, HistoryTransport, ProviderError
-from app.public_accounts import DiscoveryResult
+from app.public_accounts import DiscoveryResult, VerifiedAccountIdentity, normalize_account_display_name
 
 Bootstrapper = Callable[[str], BootstrapResult]
 TransportFactory = Callable[[CaptureCandidate], HistoryTransport]
@@ -110,6 +110,7 @@ class LiveDiscoveryService:
         account_name: str,
         target_biz: str,
         limit: int,
+        verified_identity: VerifiedAccountIdentity | None = None,
     ) -> tuple[DiscoveryResult | None, bool, ProviderError | None]:
         saw_login_required = False
         last_retryable: ProviderError | None = None
@@ -118,7 +119,11 @@ class LiveDiscoveryService:
                 seed = history_seed_from_candidate(candidate)
                 transport = self._transport_factory(candidate)
                 provider = AuthenticatedHistoryProvider(None, transport, seed=seed)
-                result = provider.recent_articles(account_name, limit)
+                result = provider.recent_articles(
+                    account_name,
+                    limit,
+                    verified_identity=verified_identity,
+                )
                 if not result.articles or any(article.biz != target_biz for article in result.articles):
                     raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
                 return result, saw_login_required, last_retryable
@@ -158,6 +163,8 @@ class LiveDiscoveryService:
             raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_navigator_unavailable")
 
         baseline = self._scan(None)
+        if baseline.truncated:
+            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_baseline_scan_truncated")
         baseline_fingerprints = {
             self._candidate_fingerprint(candidate)
             for candidate in baseline.candidates
@@ -173,6 +180,8 @@ class LiveDiscoveryService:
         deadline = time.monotonic() + self.ui_timeout_seconds
         while True:
             report = self._scan(None)
+            if report.truncated:
+                raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_post_scan_truncated")
             newly_observed: list[CaptureCandidate] = []
             for candidate in report.candidates:
                 try:
@@ -199,7 +208,13 @@ class LiveDiscoveryService:
             if self.ui_poll_seconds:
                 time.sleep(min(self.ui_poll_seconds, max(0.0, deadline - time.monotonic())))
 
-    def _recent_known_biz(self, account_name: str, target_biz: str, limit: int) -> DiscoveryResult:
+    def _recent_known_biz(
+        self,
+        account_name: str,
+        target_biz: str,
+        limit: int,
+        verified_identity: VerifiedAccountIdentity | None = None,
+    ) -> DiscoveryResult:
         history_candidates: list[CaptureCandidate] = []
         for seed in locate_state_history_seeds(self.state_dir, target_biz):
             try:
@@ -212,6 +227,7 @@ class LiveDiscoveryService:
             account_name,
             target_biz,
             limit,
+            verified_identity,
         )
         if result is not None:
             return result
@@ -227,6 +243,7 @@ class LiveDiscoveryService:
             account_name,
             target_biz,
             limit,
+            verified_identity,
         )
         if refreshed is not None:
             return refreshed
@@ -239,6 +256,7 @@ class LiveDiscoveryService:
             account_name,
             target_biz,
             limit,
+            verified_identity,
         )
         if ui_result is not None:
             return ui_result
@@ -251,29 +269,81 @@ class LiveDiscoveryService:
             raise ProviderError(last_retryable.code, "all_credential_candidates_failed")
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_not_observed")
 
-    def _remember(self, account_name: str, biz: str) -> None:
+    @staticmethod
+    def _target_biz_from_evidence(
+        account_name: str,
+        biz: str | None,
+        identity: VerifiedAccountIdentity,
+    ) -> str:
         try:
-            self._account_index.remember(account_name, biz)
-        except (OSError, ValueError):
+            normalized_name = normalize_account_display_name(account_name)
+        except ValueError as exc:
+            raise ProviderError("ACCOUNT_NOT_FOUND", "verified_account_name_mismatch") from exc
+        if normalized_name.casefold() != identity.account_name.casefold():
+            raise ProviderError("ACCOUNT_NOT_FOUND", "verified_account_name_mismatch")
+        if biz is not None and biz.strip() != identity.biz:
+            raise ProviderError("ACCOUNT_NOT_FOUND", "verified_account_biz_mismatch")
+        return identity.biz
+
+    def _remember_verified(
+        self,
+        identity: VerifiedAccountIdentity,
+        result: DiscoveryResult,
+    ) -> None:
+        if not result.account_verified:
+            return
+        if not result.articles or any(article.biz != identity.biz for article in result.articles):
+            raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
+        try:
+            self._account_index.remember_verified(identity)
+        except (OSError, TypeError, ValueError):
             pass
 
-    def recent_articles(self, account_name: str, biz: str | None, limit: int) -> DiscoveryResult:
-        normalized_account = account_name.strip()
-        if not normalized_account:
+    def recent_articles(
+        self,
+        account_name: str,
+        biz: str | None,
+        limit: int,
+        *,
+        verified_identity: VerifiedAccountIdentity | None = None,
+    ) -> DiscoveryResult:
+        try:
+            normalized_account = normalize_account_display_name(account_name)
+        except ValueError as exc:
             raise ValueError("account_name_required")
         if not 1 <= limit <= 100:
             raise ValueError("limit_out_of_range")
 
+        if verified_identity is not None:
+            target_biz = self._target_biz_from_evidence(
+                normalized_account,
+                biz,
+                verified_identity,
+            )
+            result = self._recent_known_biz(
+                normalized_account,
+                target_biz,
+                limit,
+                verified_identity,
+            )
+            self._remember_verified(verified_identity, result)
+            return result
+
         if biz is None:
-            indexed_biz = self._account_index.resolve(normalized_account)
-            if indexed_biz:
+            indexed_identity = self._account_index.resolve_verified(normalized_account)
+            if indexed_identity is not None:
                 try:
-                    indexed_result = self._recent_known_biz(normalized_account, indexed_biz, limit)
+                    indexed_result = self._recent_known_biz(
+                        normalized_account,
+                        indexed_identity.biz,
+                        limit,
+                        indexed_identity,
+                    )
                 except ProviderError as exc:
                     if exc.code == "PAGINATION_INCOMPLETE":
                         raise
                 else:
-                    self._remember(normalized_account, indexed_biz)
+                    self._remember_verified(indexed_identity, indexed_result)
                     return indexed_result
 
             resolved_biz, candidates = self._resolve_biz_by_ui_delta(normalized_account)
@@ -282,17 +352,13 @@ class LiveDiscoveryService:
                 normalized_account,
                 resolved_biz,
                 limit,
+                None,
             )
             if resolved is not None:
-                self._remember(normalized_account, resolved_biz)
                 return resolved
-            fallback = self._recent_known_biz(normalized_account, resolved_biz, limit)
-            self._remember(normalized_account, resolved_biz)
-            return fallback
+            return self._recent_known_biz(normalized_account, resolved_biz, limit)
 
         normalized_biz = biz.strip()
         if not normalized_biz or len(normalized_biz) > 256 or any(char.isspace() for char in normalized_biz):
             raise ValueError("invalid_target_biz")
-        result = self._recent_known_biz(normalized_account, normalized_biz, limit)
-        self._remember(normalized_account, normalized_biz)
-        return result
+        return self._recent_known_biz(normalized_account, normalized_biz, limit)

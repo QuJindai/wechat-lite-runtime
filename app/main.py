@@ -216,10 +216,12 @@ def create_app(
                 detail={"code": exc.code},
             ) from exc
         try:
+            verified_identity = identity.to_verified_identity()
             result = active_live_discovery.recent_articles(
                 identity.account_name,
                 identity.biz,
                 20,
+                verified_identity=verified_identity,
             )
         except ProviderError as exc:
             raise_provider_http_error(exc)

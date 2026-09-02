@@ -22,10 +22,18 @@ class FakeResolver:
 
 
 class FakeLiveDiscovery:
-    def recent_articles(self, account_name, biz, limit):
+    def __init__(self):
+        self.evidence = None
+
+    def recent_articles(self, account_name, biz, limit, *, verified_identity=None):
         assert account_name == "dSPACE德斯拜思"
         assert biz == "Mzg2Mzg3NzgxNw=="
         assert limit == 20
+        self.evidence = verified_identity
+        assert verified_identity is not None
+        assert verified_identity.account_name == account_name
+        assert verified_identity.biz == biz
+        assert verified_identity.provenance == "public_seed_article"
         rows = []
         for i in range(20):
             rows.append(normalize_article({
@@ -46,7 +54,8 @@ def test_acceptance_from_url_requires_bearer(tmp_path: Path):
 
 
 def test_acceptance_from_url_resolves_identity_and_reuses_newest20_gate(tmp_path: Path):
-    client = TestClient(create_app(settings(tmp_path), tcp_probe=lambda *_: True, live_discovery_service=FakeLiveDiscovery(), seed_article_resolver=FakeResolver()))
+    service = FakeLiveDiscovery()
+    client = TestClient(create_app(settings(tmp_path), tcp_probe=lambda *_: True, live_discovery_service=service, seed_article_resolver=FakeResolver()))
     response = client.post("/v1/public-accounts/acceptance-from-url", json={"article_url":"https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"}, headers=auth())
     assert response.status_code == 200
     body = response.json()
@@ -55,3 +64,4 @@ def test_acceptance_from_url_resolves_identity_and_reuses_newest20_gate(tmp_path
     assert body["seed"]["biz"] == "Mzg2Mzg3NzgxNw=="
     assert body["seed"]["canonical_url"] == "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"
     assert body["sensitive_values_returned"] is False
+    assert service.evidence.canonical_seed_url == "https://mp.weixin.qq.com/s/STxoDJyTsG6rrlZBDcBK9g"

@@ -37,12 +37,12 @@ class Service:
                 "url": f"https://mp.weixin.qq.com/s/article-{i+1}",
                 "published_at": 1788307200 - i * 3600,
                 "observed_at": 1788307200,
-                "verified_account": True,
+                "verified_account": False,
             }, i + 1))
         return build_discovery_result(
             records,
             requested_count=limit,
-            account_verified=True,
+            account_verified=False,
             freshness_verified=True,
             is_exhaustive_for_window=False,
             provider="authenticated_history",

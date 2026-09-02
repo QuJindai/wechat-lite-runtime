@@ -124,6 +124,8 @@ def test_name_only_discovery_resolves_unique_new_biz_by_before_after_fingerprint
 
     assert result.article_count == 20
     assert {article.biz for article in result.articles} == {"BIZ_TARGET"}
+    assert result.account_verified is False
+    assert not (tmp_path / ".public-account-index.json").exists()
     assert navigator.calls == ["目标公众号"]
 
 

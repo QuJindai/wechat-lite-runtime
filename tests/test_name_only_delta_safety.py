@@ -1,9 +1,12 @@
 import json
 from urllib.parse import parse_qs, urlsplit
 
+import pytest
+
 from app.credential_scanner import CaptureCandidate, ScanReport
 from app.launcher_bridge import SearchEvidence
 from app.live_discovery import LiveDiscoveryService
+from app.providers import ProviderError
 
 
 def candidate(biz: str, suffix: str, modified_at: float) -> CaptureCandidate:
@@ -23,20 +26,24 @@ def candidate(biz: str, suffix: str, modified_at: float) -> CaptureCandidate:
     )
 
 
-def report(items):
+def report(items, *, truncated=False):
     return ScanReport(
         scanned_files=1,
         scanned_bytes=100,
         roots=[".xwechat/radium/web"],
         candidates=list(items),
         duration_seconds=0.01,
-        truncated=False,
-        truncation_reasons=[],
+        truncated=truncated,
+        truncation_reasons=["file_count_budget"] if truncated else [],
     )
 
 
 class Navigator:
+    def __init__(self):
+        self.calls = []
+
     def search_public_account(self, account_name):
+        self.calls.append(account_name)
         return SearchEvidence(True, True, True, account_name)
 
 
@@ -82,3 +89,33 @@ def test_name_resolution_ignores_baseline_fingerprint_even_when_file_mtime_is_ne
     result = service.recent_articles("目标公众号", None, 20)
     assert result.article_count == 20
     assert {article.biz for article in result.articles} == {"BIZ_TARGET"}
+    assert result.account_verified is False
+    assert not (tmp_path / ".public-account-index.json").exists()
+
+
+@pytest.mark.parametrize("truncated_scan_index", [0, 1])
+def test_name_resolution_rejects_truncated_baseline_or_post_scan(tmp_path, truncated_scan_index):
+    scans = [
+        report([], truncated=truncated_scan_index == 0),
+        report([candidate("BIZ_TARGET", "TARGET", 200.0)], truncated=truncated_scan_index == 1),
+    ]
+    navigator = Navigator()
+    service = LiveDiscoveryService(
+        tmp_path,
+        transport_factory=lambda item: GoodTransport(item.fields["biz"]),
+        ui_navigator=navigator,
+        scan_fn=lambda target_biz, **kwargs: scans.pop(0),
+        ui_timeout_seconds=1.0,
+        ui_poll_seconds=0.0,
+    )
+
+    with pytest.raises(ProviderError) as exc:
+        service.recent_articles("目标公众号", None, 20)
+
+    assert exc.value.code == "HISTORY_SURFACE_UNAVAILABLE"
+    assert not (tmp_path / ".public-account-index.json").exists()
+    if truncated_scan_index == 0:
+        assert scans
+        assert navigator.calls == []
+    else:
+        assert navigator.calls == ["目标公众号"]

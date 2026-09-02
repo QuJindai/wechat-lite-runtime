@@ -5,6 +5,8 @@ from app.account_bootstrap import BootstrapResult, LaunchEvidence
 from app.account_index import PublicAccountIndex
 from app.credential_scanner import CaptureCandidate
 from app.live_discovery import LiveDiscoveryService
+from app.providers import HistoryPageResponse
+from app.public_accounts import VerifiedAccountIdentity
 
 
 def candidate():
@@ -45,11 +47,14 @@ class GoodTransport:
                     "multi_app_msg_item_list": [],
                 },
             })
-        return json.dumps({
-            "ret": 0,
-            "can_msg_continue": 1 if offset == 0 else 0,
-            "general_msg_list": json.dumps({"list": rows}),
-        }).encode()
+        return HistoryPageResponse(
+            payload=json.dumps({
+                "ret": 0,
+                "can_msg_continue": 1 if offset == 0 else 0,
+                "general_msg_list": json.dumps({"list": rows}),
+            }).encode(),
+            live_observation=True,
+        )
 
 
 class ForbiddenNavigator:
@@ -57,7 +62,16 @@ class ForbiddenNavigator:
         raise AssertionError("persisted account index should avoid UI resolution")
 
 
-def test_successful_explicit_biz_discovery_remembers_mapping_for_later_name_only_request(tmp_path):
+def verified_identity():
+    return VerifiedAccountIdentity(
+        account_name="目标公众号",
+        biz="BIZ_TARGET",
+        provenance="public_seed_article",
+        canonical_seed_url="https://mp.weixin.qq.com/s/public-seed",
+    )
+
+
+def test_only_seed_verified_discovery_persists_mapping_for_later_name_only_request(tmp_path):
     index = PublicAccountIndex(tmp_path)
     first = LiveDiscoveryService(
         tmp_path,
@@ -67,7 +81,18 @@ def test_successful_explicit_biz_discovery_remembers_mapping_for_later_name_only
     )
     result = first.recent_articles("目标公众号", "BIZ_TARGET", 20)
     assert result.article_count == 20
-    assert index.resolve("目标公众号") == "BIZ_TARGET"
+    assert result.account_verified is False
+    assert result.freshness_verified is True
+    assert index.resolve_verified("目标公众号") is None
+
+    verified_result = first.recent_articles(
+        "目标公众号",
+        "BIZ_TARGET",
+        20,
+        verified_identity=verified_identity(),
+    )
+    assert verified_result.account_verified is True
+    assert index.resolve_verified("目标公众号") == verified_identity()
 
     second = LiveDiscoveryService(
         tmp_path,
@@ -79,3 +104,4 @@ def test_successful_explicit_biz_discovery_remembers_mapping_for_later_name_only
     result2 = second.recent_articles("目标公众号", None, 20)
     assert result2.article_count == 20
     assert {article.biz for article in result2.articles} == {"BIZ_TARGET"}
+    assert result2.account_verified is True

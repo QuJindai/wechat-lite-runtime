@@ -38,14 +38,14 @@ class Service:
                 "url": f"https://mp.weixin.qq.com/s/article-{i+1}?key=SECRET{i+1}",
                 "published_at": base.timestamp() - i * 3600,
                 "observed_at": base,
-                "verified_account": True,
+                "verified_account": False,
             }, i + 1)
             for i in range(20)
         ]
         return build_discovery_result(
             records,
             requested_count=20,
-            account_verified=True,
+            account_verified=False,
             freshness_verified=True,
             is_exhaustive_for_window=False,
             provider="authenticated_history",
@@ -67,7 +67,8 @@ def test_acceptance_endpoint_is_bearer_protected_and_runs_name_only_newest20_gat
     assert response.status_code == 200
     assert service.calls == [("目标公众号", None, 20)]
     body = response.json()
-    assert body["verdict"] == "AUTOMATED_GATE_PASS_UI_PENDING"
+    assert body["verdict"] == "AUTOMATED_GATE_FAIL"
+    assert body["checks"]["account_verified"] is False
     assert body["first"]["title"] == "Article 1"
     assert body["twentieth"]["title"] == "Article 20"
     assert "SECRET1" not in response.text
@@ -83,3 +84,4 @@ def test_acceptance_endpoint_accepts_optional_biz_and_forces_limit_twenty(tmp_pa
     )
     assert response.status_code == 200
     assert service.calls == [("目标公众号", "KNOWN_BIZ", 20)]
+    assert response.json()["verdict"] == "AUTOMATED_GATE_FAIL"
