@@ -5,7 +5,8 @@ from typing import Callable
 
 from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, WechatURLLauncher, bootstrap_public_account
 from app.credential_scanner import CaptureCandidate
-from app.live_transport import UrllibHistoryTransport, history_seed_from_candidate
+from app.history_seed import locate_state_history_seeds
+from app.live_transport import UrllibHistoryTransport, candidate_from_history_seed, history_seed_from_candidate
 from app.providers import AuthenticatedHistoryProvider, HistoryTransport, ProviderError
 from app.public_accounts import DiscoveryResult
 
@@ -60,6 +61,34 @@ class LiveDiscoveryService:
             return valid[0]
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "matching_credential_candidate_not_observed")
 
+    def _attempt_candidates(
+        self,
+        candidates: list[CaptureCandidate],
+        account_name: str,
+        target_biz: str,
+        limit: int,
+    ) -> tuple[DiscoveryResult | None, bool, ProviderError | None]:
+        saw_login_required = False
+        last_retryable: ProviderError | None = None
+        for candidate in candidates:
+            try:
+                seed = history_seed_from_candidate(candidate)
+                transport = self._transport_factory(candidate)
+                provider = AuthenticatedHistoryProvider(None, transport, seed=seed)
+                result = provider.recent_articles(account_name, limit)
+                if not result.articles or any(article.biz != target_biz for article in result.articles):
+                    raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
+                return result, saw_login_required, last_retryable
+            except ProviderError as exc:
+                if exc.code == "PAGINATION_INCOMPLETE":
+                    raise
+                if exc.code in {"LOGIN_REQUIRED", "HISTORY_SURFACE_UNAVAILABLE", "ACCOUNT_NOT_FOUND"}:
+                    saw_login_required = saw_login_required or exc.code == "LOGIN_REQUIRED"
+                    last_retryable = exc
+                    continue
+                raise
+        return None, saw_login_required, last_retryable
+
     def recent_articles(self, account_name: str, biz: str, limit: int) -> DiscoveryResult:
         normalized_account = account_name.strip()
         normalized_biz = biz.strip()
@@ -70,34 +99,39 @@ class LiveDiscoveryService:
         if not 1 <= limit <= 100:
             raise ValueError("limit_out_of_range")
 
-        bootstrap = self._bootstrapper(normalized_biz)
-        if not bootstrap.credential_observed or not bootstrap.candidates:
-            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_not_observed")
-
-        candidates = self._valid_candidates(bootstrap.candidates, normalized_biz)
-        if not candidates:
-            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "matching_credential_candidate_not_observed")
-
-        saw_login_required = False
-        last_retryable: ProviderError | None = None
-        for candidate in candidates:
+        history_candidates: list[CaptureCandidate] = []
+        for seed in locate_state_history_seeds(self.state_dir, normalized_biz):
             try:
-                seed = history_seed_from_candidate(candidate)
-                transport = self._transport_factory(candidate)
-                provider = AuthenticatedHistoryProvider(None, transport, seed=seed)
-                result = provider.recent_articles(normalized_account, limit)
-                if not result.articles or any(article.biz != normalized_biz for article in result.articles):
-                    raise ProviderError("ACCOUNT_NOT_FOUND", "discovered_article_account_mismatch")
-                return result
-            except ProviderError as exc:
-                if exc.code == "PAGINATION_INCOMPLETE":
-                    raise
-                if exc.code in {"LOGIN_REQUIRED", "HISTORY_SURFACE_UNAVAILABLE", "ACCOUNT_NOT_FOUND"}:
-                    saw_login_required = saw_login_required or exc.code == "LOGIN_REQUIRED"
-                    last_retryable = exc
-                    continue
-                raise
+                history_candidates.append(candidate_from_history_seed(seed))
+            except ProviderError:
+                continue
 
+        result, saw_login_required, last_retryable = self._attempt_candidates(
+            history_candidates,
+            normalized_account,
+            normalized_biz,
+            limit,
+        )
+        if result is not None:
+            return result
+
+        bootstrap = self._bootstrapper(normalized_biz)
+        bootstrap_candidates = (
+            self._valid_candidates(bootstrap.candidates, normalized_biz)
+            if bootstrap.credential_observed and bootstrap.candidates
+            else []
+        )
+        refreshed, refresh_login_required, refresh_error = self._attempt_candidates(
+            bootstrap_candidates,
+            normalized_account,
+            normalized_biz,
+            limit,
+        )
+        if refreshed is not None:
+            return refreshed
+
+        saw_login_required = saw_login_required or refresh_login_required
+        last_retryable = refresh_error or last_retryable
         if saw_login_required:
             raise ProviderError("LOGIN_REQUIRED", "all_credential_candidates_stale")
         if last_retryable is not None:
