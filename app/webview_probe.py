@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 import sqlite3
 from pathlib import Path
@@ -43,15 +42,15 @@ def classify_webview_container(path: Path, web_root: Path) -> str | None:
     except ValueError:
         return None
 
-    if path.is_dir() and path.parent.name == "profiles":
+    if path.parent.name == "profiles":
         return "profile_root"
-    if path.is_dir() and path.name == "leveldb" and path.parent.name == "Local Storage":
+    if path.name == "leveldb" and path.parent.name == "Local Storage":
         return "local_storage_leveldb"
-    if path.is_file() and path.name == "Cookies":
+    if path.name == "Cookies":
         return "cookie_sqlite"
-    if path.is_file() and path.name == "History":
+    if path.name == "History":
         return "history_sqlite"
-    if path.is_dir() and path.name in {"Cache", "Code Cache", "GPUCache"}:
+    if path.name in {"Cache", "Code Cache", "GPUCache"}:
         return "cache_store"
     return None
 
@@ -85,7 +84,6 @@ def _count_in_file(path: Path, needle: bytes) -> int:
 
 def scan_fixed_markers(path: Path, needles: Sequence[bytes] = FIXED_MARKERS) -> dict[str, int]:
     result = {needle.decode("ascii"): 0 for needle in needles}
-    files: list[Path]
     if path.is_file():
         files = [path]
     elif path.is_dir():
@@ -108,7 +106,8 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
         return {"status": "not_sqlite", "tables": []}
 
     try:
-        header = path.read_bytes()[:16]
+        with path.open("rb") as handle:
+            header = handle.read(16)
     except OSError:
         return {"status": "unreadable", "tables": []}
     if header != b"SQLite format 3\x00":
