@@ -62,6 +62,10 @@ class LiveDiscoveryService:
         return "LiveDiscoveryService(state_dir='<private>')"
 
     @staticmethod
+    def _candidate_fingerprint(candidate: CaptureCandidate) -> str:
+        return str(candidate.safe_summary()["candidate_fingerprint"])
+
+    @staticmethod
     def _valid_candidates(candidates: list[CaptureCandidate], target_biz: str) -> list[CaptureCandidate]:
         valid: list[CaptureCandidate] = []
         matching = [candidate for candidate in candidates if candidate.fields.get("biz") == target_biz]
@@ -79,6 +83,23 @@ class LiveDiscoveryService:
         if valid:
             return valid[0]
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "matching_credential_candidate_not_observed")
+
+    def _scan(
+        self,
+        target_biz: str | None,
+        *,
+        max_scan_seconds: float | None = None,
+    ) -> ScanReport:
+        web_root = self.state_dir / ".xwechat" / "radium" / "web"
+        return self._scan_fn(
+            target_biz,
+            roots=[web_root],
+            since_minutes=60,
+            max_files=5000,
+            max_total_bytes=512 * 1024 * 1024,
+            max_directories=20_000,
+            max_scan_seconds=max_scan_seconds or min(3.0, self.ui_timeout_seconds),
+        )
 
     def _attempt_candidates(
         self,
@@ -118,18 +139,9 @@ class LiveDiscoveryService:
         if not evidence.dispatch_attempted or not evidence.search_submitted:
             return []
 
-        web_root = self.state_dir / ".xwechat" / "radium" / "web"
         deadline = time.monotonic() + self.ui_timeout_seconds
         while True:
-            report = self._scan_fn(
-                target_biz,
-                roots=[web_root],
-                since_minutes=60,
-                max_files=5000,
-                max_total_bytes=512 * 1024 * 1024,
-                max_directories=20_000,
-                max_scan_seconds=min(3.0, self.ui_timeout_seconds),
-            )
+            report = self._scan(target_biz)
             candidates = self._valid_candidates(report.candidates, target_biz)
             if candidates:
                 return candidates
@@ -138,18 +150,59 @@ class LiveDiscoveryService:
             if self.ui_poll_seconds:
                 time.sleep(min(self.ui_poll_seconds, max(0.0, deadline - time.monotonic())))
 
-    def recent_articles(self, account_name: str, biz: str, limit: int) -> DiscoveryResult:
-        normalized_account = account_name.strip()
-        normalized_biz = biz.strip()
-        if not normalized_account:
-            raise ValueError("account_name_required")
-        if not normalized_biz or len(normalized_biz) > 256 or any(char.isspace() for char in normalized_biz):
-            raise ValueError("invalid_target_biz")
-        if not 1 <= limit <= 100:
-            raise ValueError("limit_out_of_range")
+    def _resolve_biz_by_ui_delta(self, account_name: str) -> tuple[str, list[CaptureCandidate]]:
+        if self._ui_navigator is None:
+            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_navigator_unavailable")
 
+        baseline = self._scan(None)
+        baseline_mtime: dict[str, float] = {}
+        for candidate in baseline.candidates:
+            fingerprint = self._candidate_fingerprint(candidate)
+            baseline_mtime[fingerprint] = max(
+                baseline_mtime.get(fingerprint, float("-inf")),
+                candidate.modified_at,
+            )
+
+        try:
+            evidence = self._ui_navigator.search_public_account(account_name)
+        except (ValueError, OSError) as exc:
+            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_search_dispatch_failed") from exc
+        if not evidence.dispatch_attempted or not evidence.search_submitted:
+            raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "ui_search_dispatch_failed")
+
+        deadline = time.monotonic() + self.ui_timeout_seconds
+        while True:
+            report = self._scan(None)
+            newly_observed: list[CaptureCandidate] = []
+            for candidate in report.candidates:
+                try:
+                    history_seed_from_candidate(candidate)
+                except ProviderError:
+                    continue
+                fingerprint = self._candidate_fingerprint(candidate)
+                previous_mtime = baseline_mtime.get(fingerprint)
+                if previous_mtime is None or candidate.modified_at > previous_mtime:
+                    newly_observed.append(candidate)
+
+            grouped: dict[str, list[CaptureCandidate]] = {}
+            for candidate in newly_observed:
+                candidate_biz = candidate.fields.get("biz", "")
+                if candidate_biz:
+                    grouped.setdefault(candidate_biz, []).append(candidate)
+
+            if len(grouped) == 1:
+                resolved_biz = next(iter(grouped))
+                return resolved_biz, self._valid_candidates(grouped[resolved_biz], resolved_biz)
+            if len(grouped) > 1:
+                raise ProviderError("ACCOUNT_IDENTITY_AMBIGUOUS", "multiple_new_account_identities")
+            if time.monotonic() >= deadline:
+                raise ProviderError("ACCOUNT_NOT_FOUND", "account_identity_not_observed")
+            if self.ui_poll_seconds:
+                time.sleep(min(self.ui_poll_seconds, max(0.0, deadline - time.monotonic())))
+
+    def _recent_known_biz(self, account_name: str, target_biz: str, limit: int) -> DiscoveryResult:
         history_candidates: list[CaptureCandidate] = []
-        for seed in locate_state_history_seeds(self.state_dir, normalized_biz):
+        for seed in locate_state_history_seeds(self.state_dir, target_biz):
             try:
                 history_candidates.append(candidate_from_history_seed(seed))
             except ProviderError:
@@ -157,23 +210,23 @@ class LiveDiscoveryService:
 
         result, saw_login_required, last_retryable = self._attempt_candidates(
             history_candidates,
-            normalized_account,
-            normalized_biz,
+            account_name,
+            target_biz,
             limit,
         )
         if result is not None:
             return result
 
-        bootstrap = self._bootstrapper(normalized_biz)
+        bootstrap = self._bootstrapper(target_biz)
         bootstrap_candidates = (
-            self._valid_candidates(bootstrap.candidates, normalized_biz)
+            self._valid_candidates(bootstrap.candidates, target_biz)
             if bootstrap.credential_observed and bootstrap.candidates
             else []
         )
         refreshed, refresh_login_required, refresh_error = self._attempt_candidates(
             bootstrap_candidates,
-            normalized_account,
-            normalized_biz,
+            account_name,
+            target_biz,
             limit,
         )
         if refreshed is not None:
@@ -181,11 +234,11 @@ class LiveDiscoveryService:
         saw_login_required = saw_login_required or refresh_login_required
         last_retryable = refresh_error or last_retryable
 
-        ui_candidates = self._ui_search_candidates(normalized_account, normalized_biz)
+        ui_candidates = self._ui_search_candidates(account_name, target_biz)
         ui_result, ui_login_required, ui_error = self._attempt_candidates(
             ui_candidates,
-            normalized_account,
-            normalized_biz,
+            account_name,
+            target_biz,
             limit,
         )
         if ui_result is not None:
@@ -198,3 +251,29 @@ class LiveDiscoveryService:
         if last_retryable is not None:
             raise ProviderError(last_retryable.code, "all_credential_candidates_failed")
         raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "credential_candidate_not_observed")
+
+    def recent_articles(self, account_name: str, biz: str | None, limit: int) -> DiscoveryResult:
+        normalized_account = account_name.strip()
+        if not normalized_account:
+            raise ValueError("account_name_required")
+        if not 1 <= limit <= 100:
+            raise ValueError("limit_out_of_range")
+
+        if biz is None:
+            resolved_biz, candidates = self._resolve_biz_by_ui_delta(normalized_account)
+            resolved, saw_login_required, last_retryable = self._attempt_candidates(
+                candidates,
+                normalized_account,
+                resolved_biz,
+                limit,
+            )
+            if resolved is not None:
+                return resolved
+            if saw_login_required and last_retryable is not None:
+                return self._recent_known_biz(normalized_account, resolved_biz, limit)
+            return self._recent_known_biz(normalized_account, resolved_biz, limit)
+
+        normalized_biz = biz.strip()
+        if not normalized_biz or len(normalized_biz) > 256 or any(char.isspace() for char in normalized_biz):
+            raise ValueError("invalid_target_biz")
+        return self._recent_known_biz(normalized_account, normalized_biz, limit)
