@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, bootstrap_public_account
+from app.account_bootstrap import BootstrapResult, SubprocessWechatURLLauncher, WechatURLLauncher, bootstrap_public_account
 from app.credential_scanner import CaptureCandidate
 from app.live_transport import UrllibHistoryTransport, history_seed_from_candidate
 from app.providers import AuthenticatedHistoryProvider, HistoryTransport, ProviderError
@@ -20,16 +20,17 @@ class LiveDiscoveryService:
         *,
         bootstrapper: Bootstrapper | None = None,
         transport_factory: TransportFactory | None = None,
+        launcher: WechatURLLauncher | None = None,
     ) -> None:
         self.state_dir = Path(state_dir)
         if bootstrapper is None:
-            launcher = SubprocessWechatURLLauncher()
+            active_launcher = launcher or SubprocessWechatURLLauncher()
 
             def configured_bootstrapper(biz: str) -> BootstrapResult:
                 return bootstrap_public_account(
                     biz,
                     state_dir=self.state_dir,
-                    launcher=launcher,
+                    launcher=active_launcher,
                 )
 
             self._bootstrapper = configured_bootstrapper
