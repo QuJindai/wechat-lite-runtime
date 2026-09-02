@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Callable
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -77,7 +78,9 @@ def create_app(
         launcher=bridge_launcher,
         ui_navigator=bridge_launcher if isinstance(bridge_launcher, HttpWechatURLLauncher) else None,
     )
-    active_seed_resolver = seed_article_resolver or SeedArticleResolver()
+    active_seed_resolver = seed_article_resolver or SeedArticleResolver(
+        cache_path=Path(__file__).resolve().parents[1] / "config" / "public-seed-identities.json"
+    )
 
     def require_control_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
@@ -226,11 +229,9 @@ def create_app(
                 detail={"code": "INVALID_ACCEPTANCE_REQUEST"},
             ) from exc
         gate = evaluate_newest20_gate(result)
-        return {
-            **gate,
-            "seed": identity.safe_summary(),
-            "sensitive_values_returned": False,
-        }
+        gate["seed"] = identity.safe_summary()
+        gate["sensitive_values_returned"] = False
+        return gate
 
     @application.get(
         "/v1/public-accounts/{account}/recent",
