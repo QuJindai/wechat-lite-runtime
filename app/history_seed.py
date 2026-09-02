@@ -70,3 +70,54 @@ def locate_history_seed(history_db: Path) -> HistorySeed | None:
             last_visit_time=int(last_visit_time or 0),
         )
     return None
+
+
+def _sanitize_profile_name(name: str) -> str:
+    if name == "web_shell":
+        return name
+    if name == "multitab":
+        return name
+    if name.startswith("multitab_"):
+        return "multitab_<redacted>"
+    return "<redacted>"
+
+
+def probe_history_seed_status(state_dir: Path) -> dict[str, object]:
+    profiles_root = Path(state_dir) / ".xwechat" / "radium" / "web" / "profiles"
+    candidates: list[tuple[HistorySeed, str, Path]] = []
+
+    if profiles_root.is_dir():
+        for profile_dir in sorted(profiles_root.iterdir(), key=lambda path: path.name):
+            if not profile_dir.is_dir():
+                continue
+            history = profile_dir / "History"
+            seed = locate_history_seed(history)
+            if seed is None:
+                continue
+            candidates.append((seed, profile_dir.name, history))
+
+    if not candidates:
+        return {
+            "present": False,
+            "candidate_count": 0,
+            "selected_profile": None,
+            "selected_history": None,
+            "seed": None,
+            "sensitive_values_returned": False,
+        }
+
+    def ranking(item: tuple[HistorySeed, str, Path]) -> tuple[int, int]:
+        seed, profile_name, _ = item
+        multitab_priority = 1 if profile_name.startswith("multitab") else 0
+        return seed.last_visit_time, multitab_priority
+
+    seed, profile_name, _ = max(candidates, key=ranking)
+    safe_profile = _sanitize_profile_name(profile_name)
+    return {
+        "present": True,
+        "candidate_count": len(candidates),
+        "selected_profile": safe_profile,
+        "selected_history": f".xwechat/radium/web/profiles/{safe_profile}/History",
+        "seed": seed.safe_summary(),
+        "sensitive_values_returned": False,
+    }
