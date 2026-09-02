@@ -41,6 +41,12 @@ def test_sanitize_relative_root_redacts_account_like_segments(tmp_path: Path):
     assert sanitize_relative_root(path, state) == "xwechat_files/<redacted>/Msg"
 
 
+def test_sanitize_relative_root_redacts_all_unknown_segments(tmp_path: Path):
+    state = tmp_path / "state"
+    path = state / "PRIVATE_ACCOUNT_123" / "SECRET_FOLDER_456" / "random.sqlite"
+    assert sanitize_relative_root(path, state) == "<redacted>/<redacted>"
+
+
 def test_probe_state_returns_counts_and_never_file_contents(tmp_path: Path):
     state = tmp_path / "state"
     files = [

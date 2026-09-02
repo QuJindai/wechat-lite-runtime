@@ -47,6 +47,8 @@ def test_webview_probe_missing_root_is_explicit(tmp_path: Path):
             "pass_ticket": 0,
             "appmsg_token": 0,
         },
+        "truncated": False,
+        "truncation_reasons": [],
         "sensitive_values_returned": False,
     }
 

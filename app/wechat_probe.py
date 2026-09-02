@@ -8,6 +8,28 @@ from app.runtime import is_runtime_metadata
 
 _ACCOUNT_SEGMENT = re.compile(r"^(?:wxid_|gh_)[A-Za-z0-9_-]+$", re.IGNORECASE)
 _DB_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
+_KNOWN_PATH_SEGMENTS = {
+    ".xwechat",
+    "radium",
+    "web",
+    "profiles",
+    "web_shell",
+    "Network",
+    "Local Storage",
+    "leveldb",
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "History",
+    "Cookies",
+    "xwechat_files",
+    "Msg",
+    "User Data",
+    "Default",
+    "webview",
+    "cef",
+    "chromium",
+}
 
 
 def _looks_sensitive_segment(segment: str) -> bool:
@@ -17,6 +39,12 @@ def _looks_sensitive_segment(segment: str) -> bool:
     return len(compact) >= 24 and compact.isalnum()
 
 
+def _sanitize_segment(segment: str) -> str:
+    if segment in _KNOWN_PATH_SEGMENTS and not _looks_sensitive_segment(segment):
+        return segment
+    return "<redacted>"
+
+
 def sanitize_relative_root(path: Path, state_dir: Path) -> str:
     try:
         relative = path.relative_to(state_dir)
@@ -24,7 +52,7 @@ def sanitize_relative_root(path: Path, state_dir: Path) -> str:
         return "<outside-state>"
 
     parent_parts = list(relative.parent.parts[:3])
-    sanitized = ["<redacted>" if _looks_sensitive_segment(part) else part for part in parent_parts]
+    sanitized = [_sanitize_segment(part) for part in parent_parts]
     return "/".join(sanitized) if sanitized else "."
 
 

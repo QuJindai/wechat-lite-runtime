@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Sequence
 
@@ -13,26 +16,107 @@ FIXED_MARKERS: tuple[bytes, ...] = (
 )
 
 _PROFILE_ID_RE = re.compile(r"^(multitab_).+$", re.IGNORECASE)
-_HEX_ID_RE = re.compile(r"^[0-9a-fA-F]{16,}$")
+_KNOWN_PATH_SEGMENTS = {
+    ".xwechat",
+    "radium",
+    "web",
+    "profiles",
+    "web_shell",
+    "Network",
+    "Local Storage",
+    "leveldb",
+    "Cache",
+    "Code Cache",
+    "GPUCache",
+    "History",
+    "Cookies",
+    "xwechat_files",
+    "Msg",
+    "User Data",
+    "Default",
+}
+_KNOWN_TABLES = {"cookies", "urls", "visits", "meta"}
+_KNOWN_COLUMNS = {
+    "host_key",
+    "name",
+    "encrypted_value",
+    "expires_utc",
+    "url",
+    "title",
+    "last_visit_time",
+}
 MAX_SCAN_BYTES_PER_FILE = 32 * 1024 * 1024
 MAX_SCHEMA_TABLES = 32
 MAX_SCHEMA_COLUMNS = 64
+
+
+@dataclass
+class _ScanBudget:
+    max_files: int
+    max_total_bytes: int
+    max_directories: int
+    max_scan_seconds: float
+    started_at: float = field(default_factory=time.monotonic)
+    scanned_files: int = 0
+    scanned_bytes: int = 0
+    scanned_directories: int = 0
+    reasons: set[str] = field(default_factory=set)
+    stopped: bool = False
+
+    def check_time(self) -> bool:
+        if time.monotonic() - self.started_at <= self.max_scan_seconds:
+            return True
+        self.reasons.add("scan_time_budget")
+        self.stopped = True
+        return False
+
+    def admit_directory(self) -> bool:
+        if not self.check_time():
+            return False
+        if self.scanned_directories >= self.max_directories:
+            self.reasons.add("directory_budget")
+            self.stopped = True
+            return False
+        self.scanned_directories += 1
+        return True
+
+    def admit_file(self, path: Path) -> bool:
+        if not self.check_time():
+            return False
+        if self.scanned_files >= self.max_files:
+            self.reasons.add("file_count_budget")
+            self.stopped = True
+            return False
+        try:
+            size = max(0, int(path.stat().st_size))
+        except OSError:
+            size = 0
+        admitted_bytes = min(size, MAX_SCAN_BYTES_PER_FILE)
+        if size > MAX_SCAN_BYTES_PER_FILE:
+            self.reasons.add("per_file_byte_budget")
+        if self.scanned_bytes + admitted_bytes > self.max_total_bytes:
+            self.reasons.add("total_byte_budget")
+            self.stopped = True
+            return False
+        self.scanned_files += 1
+        self.scanned_bytes += admitted_bytes
+        return True
 
 
 def _sanitize_segment(segment: str) -> str:
     match = _PROFILE_ID_RE.match(segment)
     if match:
         return f"{match.group(1)}<redacted>"
-    if _HEX_ID_RE.match(segment):
-        return "<redacted>"
-    return segment
+    if segment in _KNOWN_PATH_SEGMENTS:
+        return segment
+    return "<redacted>"
 
 
 def _sanitize_relative(path: Path, state_dir: Path) -> str:
     try:
         relative = path.relative_to(state_dir)
     except ValueError:
-        relative = Path(path.name)
+        return "<outside-state>"
     return "/".join(_sanitize_segment(part) for part in relative.parts)
 
 
@@ -55,45 +139,56 @@ def classify_webview_container(path: Path, web_root: Path) -> str | None:
     return None
 
 
-def _count_in_file(path: Path, needle: bytes) -> int:
+def _marker_counts_in_file(
+    path: Path,
+    needles: Sequence[bytes],
+    *,
+    budget: _ScanBudget | None = None,
+) -> dict[str, int]:
+    counts = {needle.decode("ascii"): 0 for needle in needles}
     try:
         size = path.stat().st_size
     except OSError:
-        return 0
+        return counts
     if size <= 0:
-        return 0
+        return counts
 
-    count = 0
     remaining = min(size, MAX_SCAN_BYTES_PER_FILE)
-    overlap = max(len(needle) - 1, 0)
-    tail = b""
+    tails = {needle: b"" for needle in needles}
     try:
         with path.open("rb") as handle:
             while remaining > 0:
+                if budget is not None and not budget.check_time():
+                    break
                 chunk = handle.read(min(1024 * 1024, remaining))
                 if not chunk:
                     break
                 remaining -= len(chunk)
-                data = tail + chunk
-                count += data.count(needle)
-                tail = data[-overlap:] if overlap else b""
+                for needle in needles:
+                    data = tails[needle] + chunk
+                    counts[needle.decode("ascii")] += data.count(needle)
+                    overlap = max(len(needle) - 1, 0)
+                    tails[needle] = data[-overlap:] if overlap else b""
     except OSError:
-        return 0
-    return count
+        return counts
+    return counts
+
+
+def _file_marker_counts(path: Path, *, budget: _ScanBudget | None = None) -> dict[str, int]:
+    return _marker_counts_in_file(path, FIXED_MARKERS, budget=budget)
 
 
 def scan_fixed_markers(path: Path, needles: Sequence[bytes] = FIXED_MARKERS) -> dict[str, int]:
     result = {needle.decode("ascii"): 0 for needle in needles}
     if path.is_file():
-        files = [path]
+        for key, value in _marker_counts_in_file(path, needles).items():
+            result[key] += value
     elif path.is_dir():
-        files = [candidate for candidate in path.rglob("*") if candidate.is_file()]
-    else:
-        files = []
-
-    for candidate in files:
-        for needle in needles:
-            result[needle.decode("ascii")] += _count_in_file(candidate, needle)
+        for directory, _subdirectories, filenames in os.walk(path):
+            for filename in filenames:
+                counts = _marker_counts_in_file(Path(directory) / filename, needles)
+                for key, value in counts.items():
+                    result[key] += value
     return result
 
 
@@ -101,10 +196,13 @@ def _quote_identifier(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
+def _safe_identifier(value: str, allowed: set[str], label: str, position: int) -> str:
+    return value if value in allowed else f"<redacted-{label}-{position}>"
+
+
 def inspect_sqlite_schema(path: Path) -> dict[str, object]:
     if not path.is_file():
         return {"status": "not_sqlite", "tables": []}
-
     try:
         with path.open("rb") as handle:
             header = handle.read(16)
@@ -126,14 +224,19 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
             "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT ?",
             (MAX_SCHEMA_TABLES,),
         ).fetchall()
-        for (table_name,) in rows:
+        for table_position, (table_name,) in enumerate(rows, start=1):
+            raw_table = str(table_name)
             columns = conn.execute(
-                f"PRAGMA table_info({_quote_identifier(str(table_name))})"
+                f"PRAGMA table_info({_quote_identifier(raw_table)})"
             ).fetchall()
+            safe_columns = [
+                _safe_identifier(str(row[1]), _KNOWN_COLUMNS, "column", column_position)
+                for column_position, row in enumerate(columns[:MAX_SCHEMA_COLUMNS], start=1)
+            ]
             tables.append(
                 {
-                    "name": str(table_name),
-                    "columns": [str(row[1]) for row in columns[:MAX_SCHEMA_COLUMNS]],
+                    "name": _safe_identifier(raw_table, _KNOWN_TABLES, "table", table_position),
+                    "columns": safe_columns,
                 }
             )
     except sqlite3.OperationalError:
@@ -143,12 +246,53 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
     return {"status": "ok", "tables": tables}
 
 
-def _container_file_count(path: Path) -> int:
-    if path.is_file():
-        return 1
-    if not path.is_dir():
-        return 0
-    return sum(1 for item in path.rglob("*") if item.is_file())
+def _walk_tree(root: Path, budget: _ScanBudget) -> tuple[list[Path], list[Path]]:
+    paths: list[Path] = []
+    files: list[Path] = []
+    pending = [root]
+    while pending and not budget.stopped:
+        current = pending.pop()
+        if not budget.admit_directory():
+            break
+        paths.append(current)
+        try:
+            iterator = os.scandir(current)
+        except OSError:
+            continue
+        with iterator:
+            for entry in iterator:
+                if not budget.check_time():
+                    break
+                candidate = Path(entry.path)
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(candidate)
+                        continue
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                if not budget.admit_file(candidate):
+                    break
+                paths.append(candidate)
+                files.append(candidate)
+    return paths, files
+
+
+def _sum_markers(
+    files: Sequence[Path],
+    marker_counts: dict[Path, dict[str, int]],
+    root: Path,
+) -> dict[str, int]:
+    totals = {marker.decode("ascii"): 0 for marker in FIXED_MARKERS}
+    for path in files:
+        try:
+            path.relative_to(root)
+        except ValueError:
+            continue
+        for key, value in marker_counts.get(path, {}).items():
+            totals[key] += value
+    return totals
 
 
 def _profile_label(name: str) -> str:
@@ -159,7 +303,16 @@ def _profile_label(name: str) -> str:
     return "<redacted>"
 
 
-def probe_webview_state(state_dir: Path) -> dict[str, object]:
+def probe_webview_state(
+    state_dir: Path,
+    *,
+    max_files: int = 5000,
+    max_total_bytes: int = 512 * 1024 * 1024,
+    max_directories: int = 20_000,
+    max_scan_seconds: float = 3.0,
+) -> dict[str, object]:
+    if max_files < 1 or max_total_bytes < 1 or max_directories < 1 or max_scan_seconds <= 0:
+        raise ValueError("invalid_scan_budget")
     state_dir = Path(state_dir)
     web_root = state_dir / ".xwechat" / "radium" / "web"
     zero_markers = {marker.decode("ascii"): 0 for marker in FIXED_MARKERS}
@@ -168,38 +321,59 @@ def probe_webview_state(state_dir: Path) -> dict[str, object]:
             "web_root_present": False,
             "profiles": [],
             "marker_totals": zero_markers,
+            "truncated": False,
+            "truncation_reasons": [],
             "sensitive_values_returned": False,
         }
 
+    budget = _ScanBudget(
+        max_files=max_files,
+        max_total_bytes=max_total_bytes,
+        max_directories=max_directories,
+        max_scan_seconds=max_scan_seconds,
+        started_at=time.monotonic(),
+    )
     profiles_root = web_root / "profiles"
-    profile_dirs = []
-    if profiles_root.is_dir():
-        profile_dirs = sorted(
-            [item for item in profiles_root.iterdir() if item.is_dir()],
-            key=lambda item: item.name,
-        )
+    paths, files = _walk_tree(profiles_root, budget) if profiles_root.is_dir() else ([], [])
+    file_markers: dict[Path, dict[str, int]] = {}
+    for path in files:
+        if not budget.check_time():
+            break
+        file_markers[path] = _file_marker_counts(path, budget=budget)
 
+    profile_dirs = sorted(
+        [path for path in paths if path.is_dir() and path.parent == profiles_root],
+        key=lambda path: path.name,
+    )
     profiles: list[dict[str, object]] = []
     marker_totals = dict(zero_markers)
     for profile in profile_dirs:
-        profile_markers = scan_fixed_markers(profile)
+        profile_files = [path for path in files if path == profile or profile in path.parents]
+        profile_markers = _sum_markers(profile_files, file_markers, profile)
         for key, value in profile_markers.items():
             marker_totals[key] += value
 
         containers: list[dict[str, object]] = []
-        candidates = [item for item in profile.rglob("*") if classify_webview_container(item, web_root)]
-        for item in sorted(candidates, key=lambda candidate: candidate.as_posix()):
+        candidates = sorted(
+            [path for path in paths if classify_webview_container(path, web_root)],
+            key=lambda path: path.as_posix(),
+        )
+        for item in candidates:
+            if profile not in item.parents and item != profile:
+                continue
             container_class = classify_webview_container(item, web_root)
             if container_class == "profile_root":
                 continue
+            contained_files = [path for path in profile_files if path == item or item in path.parents]
             entry: dict[str, object] = {
                 "class": container_class,
                 "relative_path": _sanitize_relative(item, state_dir),
-                "file_count": _container_file_count(item),
-                "marker_counts": scan_fixed_markers(item),
+                "file_count": len(contained_files),
+                "marker_counts": _sum_markers(contained_files, file_markers, item),
             }
-            if container_class in {"cookie_sqlite", "history_sqlite"}:
+            if container_class in {"cookie_sqlite", "history_sqlite"} and item in files:
                 entry["sqlite_schema"] = inspect_sqlite_schema(item)
+                budget.check_time()
             containers.append(entry)
 
         profiles.append(
@@ -215,5 +389,7 @@ def probe_webview_state(state_dir: Path) -> dict[str, object]:
         "web_root_present": True,
         "profiles": profiles,
         "marker_totals": marker_totals,
+        "truncated": bool(budget.reasons),
+        "truncation_reasons": sorted(budget.reasons),
         "sensitive_values_returned": False,
     }

@@ -3,6 +3,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from app.webview_probe import (
     classify_webview_container,
     inspect_sqlite_schema,
@@ -97,6 +99,25 @@ def test_sqlite_schema_never_reads_rows(tmp_path: Path):
     assert ".mp.weixin.qq.com" not in rendered
 
 
+def test_sqlite_schema_redacts_unknown_table_and_column_identifiers(tmp_path: Path):
+    db = tmp_path / "History"
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute('CREATE TABLE "SECRET_TABLE_456" ("TOKEN_COLUMN_789" TEXT)')
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = inspect_sqlite_schema(db)
+
+    assert result["status"] == "ok"
+    assert "SECRET_TABLE_456" not in repr(result)
+    assert "TOKEN_COLUMN_789" not in repr(result)
+    assert result["tables"] == [
+        {"name": "<redacted-table-1>", "columns": ["<redacted-column-1>"]}
+    ]
+
+
 def test_probe_webview_state_sanitizes_profile_ids_and_exposes_no_values(tmp_path: Path):
     web_root = build_web_root(tmp_path)
     profile = web_root / "profiles" / "multitab_0123456789abcdef0123456789abcdef"
@@ -129,6 +150,47 @@ def test_probe_webview_state_sanitizes_profile_ids_and_exposes_no_values(tmp_pat
     assert "TOKEN" not in rendered
 
 
+def test_probe_webview_state_redacts_unknown_path_segments(tmp_path: Path):
+    web_root = build_web_root(tmp_path)
+    profile = web_root / "profiles" / "multitab_0123456789abcdef0123456789abcdef"
+    private_cache = profile / "PRIVATE_ACCOUNT_123" / "Cache"
+    private_cache.mkdir(parents=True)
+    (private_cache / "data_0").write_bytes(b"mp.weixin.qq.com")
+
+    result = probe_webview_state(tmp_path)
+
+    assert "PRIVATE_ACCOUNT_123" not in repr(result)
+    relative_paths = [
+        container["relative_path"]
+        for item in result["profiles"]
+        for container in item["containers"]
+    ]
+    assert any("<redacted>/Cache" in path for path in relative_paths)
+
+
+@pytest.mark.parametrize(
+    ("limits", "reason"),
+    [
+        ({"max_files": 1}, "file_count_budget"),
+        ({"max_total_bytes": 1}, "total_byte_budget"),
+        ({"max_directories": 1}, "directory_budget"),
+        ({"max_scan_seconds": 0.000000001}, "scan_time_budget"),
+    ],
+)
+def test_probe_webview_state_reports_global_budget_truncation(tmp_path: Path, limits, reason, monkeypatch):
+    build_web_root(tmp_path)
+    if reason == "scan_time_budget":
+        ticks = iter([0.0, 1.0])
+        monkeypatch.setattr("app.webview_probe.time.monotonic", lambda: next(ticks, 1.0))
+        limits = {"max_scan_seconds": 0.5}
+
+    result = probe_webview_state(tmp_path, **limits)
+
+    assert result["truncated"] is True
+    assert reason in result["truncation_reasons"]
+    assert result["sensitive_values_returned"] is False
+
+
 def test_probe_missing_web_root_is_explicit(tmp_path: Path):
     result = probe_webview_state(tmp_path)
 
@@ -141,5 +203,7 @@ def test_probe_missing_web_root_is_explicit(tmp_path: Path):
             "pass_ticket": 0,
             "appmsg_token": 0,
         },
+        "truncated": False,
+        "truncation_reasons": [],
         "sensitive_values_returned": False,
     }
