@@ -2,13 +2,15 @@
 
 A lightweight, on-demand GitHub Codespaces runtime for the official Linux WeChat client.
 
-V0 deliberately does not rebuild or redistribute WeChat. It composes the upstream `ghcr.io/nickrunning/wechat-selkies:minimal` image with a small FastAPI control service. The upstream container downloads/contains the official Linux WeChat client and exposes it through Selkies WebRTC.
+V0 deliberately does not rebuild or redistribute WeChat. It pins the upstream published release `ghcr.io/nickrunning/wechat-selkies:0.0.16` with a small FastAPI control service. The upstream container contains the official Linux WeChat client and exposes it through Selkies WebRTC.
+
+The upstream floating `minimal` tag returned `manifest unknown` during a real GitHub Runner smoke test on 2026-09-02, so V0 intentionally uses the published `0.0.16` full image until a reliable minimal image is available. QQ remains disabled with `AUTO_START_QQ=false`.
 
 Persistent session path: `state/ -> /config`.
 
 Physical V0 gate: `scan -> stop -> start -> verify`.
 
-Runtime image: `ghcr.io/nickrunning/wechat-selkies:minimal`.
+Runtime image: `ghcr.io/nickrunning/wechat-selkies:0.0.16`.
 
 ## One-command V0 acceptance
 
@@ -37,6 +39,8 @@ Expected automated verdict after restart:
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1)
 
 The `quickstart=1` link resumes your most recent matching Codespace when available; otherwise it opens the create-Codespace page for the V0 feature branch.
+
+**Important after this networking/image fix:** if you already created a Codespace before commit `0d439822`, rebuild the container once so the updated `.devcontainer` networking is applied. GitHub Codespaces does not apply changed dev-container port configuration to an already-created container until it is rebuilt.
 
 ## Control-token behavior
 
