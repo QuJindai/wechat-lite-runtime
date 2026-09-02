@@ -8,9 +8,14 @@ on:
     paths:
       - '.devcontainer/docker-compose.yml'
       - 'scripts/wechat-launcher-service.py'
+      - 'app/account_bootstrap.py'
+      - 'app/credential_scanner.py'
+      - 'app/history_pager.py'
+      - 'app/history_seed.py'
       - 'app/launcher_bridge.py'
       - 'app/live_discovery.py'
       - 'app/live_transport.py'
+      - 'app/providers.py'
       - 'app/main.py'
       - '.github/workflows/live-discovery-runtime-smoke.yml'
 
