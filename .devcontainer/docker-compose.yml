@@ -15,8 +15,17 @@ services:
   wechat:
     image: ghcr.io/nickrunning/wechat-selkies:0.0.16
     restart: unless-stopped
+    entrypoint:
+    - /bin/bash
+    - -lc
+    - |
+      mkdir -p /custom-services.d
+      cp /opt/wechat-lite/wechat-launcher-service.py /custom-services.d/wechat-launcher
+      chmod 0755 /custom-services.d/wechat-launcher
+      exec /init
     volumes:
     - ../state:/config
+    - ../scripts/wechat-launcher-service.py:/opt/wechat-lite/wechat-launcher-service.py:ro
     shm_size: 1gb
     environment:
       PUID: '1000'
