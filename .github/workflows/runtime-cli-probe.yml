@@ -10,7 +10,7 @@ on:
       - '.devcontainer/**'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   runtime-cli-probe:
@@ -74,12 +74,48 @@ jobs:
                 body="$(docker exec "$cid" python3 -c "import urllib.request,sys; print(urllib.request.urlopen('http://127.0.0.1:'+sys.argv[1]+sys.argv[2], timeout=1).read(4096).decode('utf-8','replace'))" "$port" "$endpoint" 2>/dev/null || true)"
                 if [ -n "$body" ]; then
                   printf 'CDP_HIT port=%s endpoint=%s\n' "$port" "$endpoint"
-                  printf '%s\n' "$body" \
-                    | sed -E 's#(webSocketDebuggerUrl"[[:space:]]*:[[:space:]]*")[^"]+#\1<redacted>#g'
+                  printf '%s\n' "$body" | sed -E 's#(webSocketDebuggerUrl"[[:space:]]*:[[:space:]]*")[^"]+#\1<redacted>#g'
                 fi
               done
             done
           } > /tmp/runtime-cli-probe/devtools.txt
+
+      - name: Persist sanitized CLI summary
+        if: always() && github.event_name == 'push'
+        run: |
+          mkdir -p docs
+          {
+            echo '# Runtime CLI Probe Latest'
+            echo
+            echo "- head_sha: \`${GITHUB_SHA}\`"
+            echo
+            echo '## Context'
+            echo '```text'
+            cat /tmp/runtime-cli-probe/context.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Radium / browser processes'
+            echo '```text'
+            head -n 120 /tmp/runtime-cli-probe/processes.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Listening ports'
+            echo '```text'
+            head -n 120 /tmp/runtime-cli-probe/listeners.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## DevTools probe'
+            echo '```text'
+            cat /tmp/runtime-cli-probe/devtools.txt 2>/dev/null || true
+            echo '```'
+          } > docs/runtime-cli-probe-latest.md
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/runtime-cli-probe-latest.md
+          if ! git diff --cached --quiet; then
+            git commit -m 'ci: record runtime CLI probe'
+            git push
+          fi
 
       - name: Upload sanitized CLI diagnostic
         if: always()
