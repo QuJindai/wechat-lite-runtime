@@ -15,6 +15,7 @@ from app.live_discovery import LiveDiscoveryService
 from app.providers import ProviderError, PublicAccountProvider
 from app.public_accounts import redact_sensitive_text
 from app.runtime import build_codespace_port_url, probe_tcp, summarize_state_dir
+from app.seed_article import SeedArticleResolver, SeedResolutionError
 from app.v1_acceptance import evaluate_newest20_gate
 from app.wechat_probe import probe_state
 from app.webview_probe import probe_webview_state
@@ -38,14 +39,19 @@ class AcceptanceRequest(BaseModel):
     biz: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class SeedAcceptanceRequest(BaseModel):
+    article_url: str = Field(min_length=1, max_length=2048)
+
+
 def create_app(
     settings: Settings,
     tcp_probe: TcpProbe = probe_tcp,
     public_account_provider: PublicAccountProvider | None = None,
     account_bootstrapper: AccountBootstrapper | None = None,
     live_discovery_service: LiveDiscoveryService | None = None,
+    seed_article_resolver: SeedArticleResolver | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.10.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.11.0")
     bearer = HTTPBearer(auto_error=False)
 
     bridge_launcher = (
@@ -71,6 +77,7 @@ def create_app(
         launcher=bridge_launcher,
         ui_navigator=bridge_launcher if isinstance(bridge_launcher, HttpWechatURLLauncher) else None,
     )
+    active_seed_resolver = seed_article_resolver or SeedArticleResolver()
 
     def require_control_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
@@ -190,6 +197,38 @@ def create_app(
                 detail={"code": "INVALID_ACCEPTANCE_REQUEST"},
             ) from exc
         return evaluate_newest20_gate(result)
+
+    @application.post("/v1/public-accounts/acceptance-from-url", dependencies=[Depends(require_control_token)])
+    def public_account_acceptance_from_url(request: SeedAcceptanceRequest) -> dict[str, object]:
+        try:
+            identity = active_seed_resolver.resolve(request.article_url)
+        except SeedResolutionError as exc:
+            error_status = (
+                status.HTTP_400_BAD_REQUEST
+                if exc.code == "SEED_URL_NOT_ALLOWED"
+                else status.HTTP_502_BAD_GATEWAY
+            )
+            raise HTTPException(
+                status_code=error_status,
+                detail={"code": exc.code},
+            ) from exc
+        try:
+            result = active_live_discovery.recent_articles(
+                identity.account_name,
+                identity.biz,
+                20,
+            )
+        except ProviderError as exc:
+            raise_provider_http_error(exc)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "INVALID_ACCEPTANCE_REQUEST"},
+            ) from exc
+        gate = evaluate_newest20_gate(result)
+        gate["seed"] = identity.safe_summary()
+        gate["sensitive_values_returned"] = False
+        return gate
 
     @application.get(
         "/v1/public-accounts/{account}/recent",
