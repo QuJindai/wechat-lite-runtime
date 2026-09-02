@@ -80,6 +80,32 @@ jobs:
             done
           } > /tmp/runtime-cli-probe/devtools.txt
 
+      - name: Identify port 8082 owner and HTTP behavior
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          {
+            echo 'base=http://127.0.0.1:8082'
+            echo '--- ownership ---'
+            docker exec "$cid" bash -lc 'if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:8082 -sTCP:LISTEN; elif command -v fuser >/dev/null 2>&1; then fuser -n tcp 8082 -v; else ps -eo pid,args | grep -E "8082|selkies|webrtc|websockify|python|nginx" | grep -v grep; fi' 2>&1 || true
+            echo '--- http ---'
+            for endpoint in / /json/version /json/list /health /metrics; do
+              printf 'ENDPOINT %s\n' "$endpoint"
+              docker exec "$cid" python3 -c "import urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8082'+sys.argv[1], timeout=2); print('status='+str(r.status)); print(r.read(4096).decode('utf-8','replace'))" "$endpoint" 2>/dev/null \
+                | sed -E 's#(webSocketDebuggerUrl"[[:space:]]*:[[:space:]]*")[^"]+#\1<redacted>#g' || true
+            done
+          } > /tmp/runtime-cli-probe/port-8082.txt
+
+      - name: Probe runtime text configuration hints
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          docker exec "$cid" bash -lc 'find /opt/wechat /etc /usr/local/bin -type f -size -2M 2>/dev/null -print0 | xargs -0 -r grep -I -nE "remote-debugging|8082" 2>/dev/null | head -n 200' \
+            | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' \
+            > /tmp/runtime-cli-probe/runtime-config-hints.txt || true
+
       - name: Persist sanitized CLI summary
         if: always() && github.event_name == 'push'
         run: |
@@ -107,6 +133,16 @@ jobs:
             echo '## DevTools probe'
             echo '```text'
             cat /tmp/runtime-cli-probe/devtools.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Port 8082 probe'
+            echo '```text'
+            head -n 160 /tmp/runtime-cli-probe/port-8082.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Runtime configuration hints'
+            echo '```text'
+            head -n 200 /tmp/runtime-cli-probe/runtime-config-hints.txt 2>/dev/null || true
             echo '```'
           } > docs/runtime-cli-probe-latest.md
           git config user.name 'github-actions[bot]'
