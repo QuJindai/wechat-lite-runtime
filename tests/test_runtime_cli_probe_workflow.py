@@ -74,3 +74,13 @@ def test_runtime_cli_probe_inspects_linux_wechat_url_handler_and_deep_link_regis
     assert "/opt/wechat" in workflow
     assert "runtime-cli-probe/url-handler.txt" in workflow
     assert "## URL handler capability" in workflow
+
+
+def test_runtime_cli_probe_reads_fields_from_dynamically_discovered_wechat_desktop_files():
+    workflow = (ROOT / ".github/workflows/runtime-cli-probe.yml").read_text(encoding="utf-8")
+
+    assert 'find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop"' in workflow
+    assert "DESKTOP_DISCOVERED=" in workflow
+    assert "while IFS= read -r desktop" in workflow
+    assert 'grep -E "^Exec=" "$desktop"' in workflow
+    assert 'grep -E "^MimeType=" "$desktop"' in workflow
