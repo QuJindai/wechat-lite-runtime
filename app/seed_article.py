@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Callable, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -136,8 +138,30 @@ def _extract_identity(page: str, canonical_url: str) -> SeedIdentity:
     return SeedIdentity(account_name=account_name, biz=biz, canonical_url=canonical_url)
 
 
+def _load_cached_identity(cache_path: Path | None, canonical_url: str) -> SeedIdentity | None:
+    if cache_path is None or not cache_path.is_file():
+        return None
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get(canonical_url)
+    if not isinstance(raw, dict):
+        return None
+    account_name = str(raw.get("account_name") or "").strip()
+    biz = str(raw.get("biz") or "").strip()
+    if not account_name or not biz:
+        return None
+    allowed = {"account_name", "biz"}
+    if any(str(key) not in allowed for key in raw):
+        return None
+    return SeedIdentity(account_name=account_name, biz=biz, canonical_url=canonical_url)
+
+
 class SeedArticleResolver:
-    def __init__(self, *, opener: OpenFn = _default_open, timeout_seconds: float = 10.0, max_response_bytes: int = _MAX_RESPONSE_BYTES) -> None:
+    def __init__(self, *, opener: OpenFn = _default_open, timeout_seconds: float = 10.0, max_response_bytes: int = _MAX_RESPONSE_BYTES, cache_path: Path | None = None) -> None:
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds_out_of_range")
         if max_response_bytes < 1:
@@ -145,9 +169,14 @@ class SeedArticleResolver:
         self._opener = opener
         self.timeout_seconds = float(timeout_seconds)
         self.max_response_bytes = int(max_response_bytes)
+        self.cache_path = Path(cache_path) if cache_path is not None else None
 
     def resolve(self, article_url: str) -> SeedIdentity:
         canonical_url = _validate_seed_url(article_url)
+        cached = _load_cached_identity(self.cache_path, canonical_url)
+        if cached is not None:
+            return cached
+
         fetch_url = _fetch_url(article_url)
         request = urllib.request.Request(
             fetch_url,
