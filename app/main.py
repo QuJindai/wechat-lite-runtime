@@ -39,7 +39,7 @@ def create_app(
     account_bootstrapper: AccountBootstrapper | None = None,
     live_discovery_service: LiveDiscoveryService | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="WeChat Lite Runtime", version="0.7.0")
+    application = FastAPI(title="WeChat Lite Runtime", version="0.8.0")
     bearer = HTTPBearer(auto_error=False)
 
     bridge_launcher = (
@@ -63,6 +63,7 @@ def create_app(
     active_live_discovery = live_discovery_service or LiveDiscoveryService(
         settings.state_dir,
         launcher=bridge_launcher,
+        ui_navigator=bridge_launcher if isinstance(bridge_launcher, HttpWechatURLLauncher) else None,
     )
 
     def require_control_token(
