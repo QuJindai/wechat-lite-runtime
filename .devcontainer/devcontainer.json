@@ -1,0 +1,27 @@
+{
+  "name": "WeChat Lite Runtime",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "workspace",
+  "workspaceFolder": "/workspaces/wechat-lite-runtime",
+  "runServices": [
+    "wechat"
+  ],
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [
+    3001,
+    8787
+  ],
+  "portsAttributes": {
+    "3001": {
+      "label": "WeChat Web UI",
+      "protocol": "https",
+      "onAutoForward": "openBrowser"
+    },
+    "8787": {
+      "label": "WeChat Runtime Control API",
+      "onAutoForward": "silent"
+    }
+  },
+  "postCreateCommand": "python -m pip install -r requirements-dev.txt",
+  "postStartCommand": "bash scripts/start-control-api.sh"
+}
