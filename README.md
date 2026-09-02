@@ -4,6 +4,8 @@ A lightweight, on-demand GitHub Codespaces runtime for the official Linux WeChat
 
 The runtime pins `ghcr.io/nickrunning/wechat-selkies:0.0.16`, keeps WeChat profile data under `state/ -> /config`, exposes the Selkies UI on `3001`, and runs a private FastAPI control/discovery service on `8787`.
 
+Physical V0 gate: `scan -> stop -> start -> verify`.
+
 ## V0 persistence
 
 V0 is physically verified: the same Codespace can stop/start while preserving the local WeChat profile and logged-in state. The control API also self-heals after restart.
@@ -17,9 +19,15 @@ python -m app.acceptance after
 
 No manual `WECHAT_CONTROL_TOKEN` setup is required. If no explicit secret is supplied, the runtime creates a random token at `state/.control-token` with mode `0600` and reuses it after restart.
 
+V0 Codespaces quickstart:
+
+```text
+https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1
+```
+
 ## V1 public-account discovery
 
-V1 lives on `feat/v1-public-account-discovery` and uses the already logged-in official Linux WeChat runtime. Session material remains inside `state/` and process memory.
+V1 development lives on `feat/v1-public-account-discovery` and uses the already logged-in official Linux WeChat runtime. Session material remains inside `state/` and process memory.
 
 The preferred API is:
 
@@ -117,4 +125,6 @@ bash scripts/probe-wechat-webview.sh
 bash scripts/probe-history-seed.sh
 ```
 
-They return sanitized structure/status only and do not print session values.
+The safe runtime probe does not print cookies, auth tokens, raw WeChat database contents, contacts or messages.
+
+The WebView probe returns only sanitized paths, schema names and marker counts; it does not return cookie or token values, Local Storage values or database rows.
