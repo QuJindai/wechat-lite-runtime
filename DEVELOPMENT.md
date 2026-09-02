@@ -2,41 +2,50 @@
 
 ## V0 objective
 
-Prove the lightweight Codespaces architecture before adding a wake gateway, MCP layer or public-account automation.
+Prove the lightweight Codespaces architecture before adding wake orchestration, MCP packaging or public-account automation.
 
-## Verified software status
+## V0 final status
+
+**V0 = PASS**
+
+Verified on the real GitHub Codespace `musical-guide-vxp45jxgj442wg75` on 2026-09-02:
 
 - Repository visibility: **public**.
-- Local isolated workspace after acceptance-helper update: `python -m pytest -q` -> **29 passed**.
-- Dev Container JSON validation: PASS.
-- Control startup shell syntax: PASS.
-- Codespaces WeChat UI port `3001` is configured to auto-open in the browser.
-- Restart acceptance helper added: `python -m app.acceptance before|after`.
-- Helper records only aggregate state counts and readiness; it does not read WeChat content.
-- Draft PR: `#1 feat: add on-demand Codespaces WeChat runtime`.
-- Remaining gate: `PHYSICAL_LOGIN_PERSISTENCE`.
+- WeChat Linux runtime starts successfully through the pinned `ghcr.io/nickrunning/wechat-selkies:0.0.16` image.
+- Codespace workspace and WeChat service share the required network namespace.
+- WeChat Web UI port `3001` is reachable and opens the normal WeChat interface.
+- Runtime Control API `8787` has self-healing startup during acceptance.
+- `python -m app.acceptance before` returned `BASELINE_RECORDED`.
+- Baseline session state: initialized=true, file_count=1171, total_bytes=266600596.
+- The same Codespace was stopped and restarted.
+- `python -m app.acceptance after` returned `STORAGE_PASS_AUTH_PENDING`.
+- Marker survived=true; session initialized before/after=true; WeChat Web UI ready after restart=true.
+- Post-restart session state: file_count=1171, total_bytes=267093832.
+- User visually confirmed the normal WeChat interface remained logged in without rescanning a QR code.
 
-## Physical gate: PHYSICAL_LOGIN_PERSISTENCE
+Therefore:
 
-1. Create the Codespace from `feat/v0-codespace-runtime`.
-2. Set `WECHAT_CONTROL_TOKEN` as a Codespaces secret.
-3. Port `3001` auto-opens the WeChat Web UI.
-4. Scan the login QR code and reach the normal WeChat interface.
-5. Run `python -m app.acceptance before`.
-6. Stop the Codespace.
-7. Start the same Codespace.
-8. Run `python -m app.acceptance after`.
-9. Automated target verdict: `STORAGE_PASS_AUTH_PENDING`.
-10. Visually confirm WeChat is still logged in. Then the physical gate is PASS.
+- `CODESPACE_STATE_PERSISTENCE = PASS`
+- `PHYSICAL_LOGIN_PERSISTENCE = PASS`
 
-`STATE_LOST` means the persistent marker/profile disappeared. `AUTH_RESCAN_REQUIRED` means Tencent requested re-authentication while persistent storage remained intact; these are different failures.
+No manual `WECHAT_CONTROL_TOKEN` setup is required for V0. The runtime creates and persists a local control token automatically when an explicit secret is absent.
 
-**Do not merge** the V0 branch into `main` until `PHYSICAL_LOGIN_PERSISTENCE` has a PASS result or the user explicitly accepts the remaining device-only gate.
+## V1 next phase
 
-## Deferred phases
+Build authenticated public-account discovery on top of the proven logged-in WeChat runtime. V1 scope:
 
-- V1: external wake gateway for GitHub Codespaces Start/Stop REST API.
-- V2: authenticated WeChat UI/session-state probe.
-- V3: public-account history discovery and recent-article extraction.
-- V4: standalone `@微信` MCP packaging.
-- Optional later integration: expose article URLs to `深析` as a provider without sharing WeChat session material.
+1. Select or search a public account in the logged-in WeChat UI.
+2. Open its history / all-messages surface.
+3. Extract normalized article metadata: title, canonical URL, published time, account identity and pagination cursor.
+4. Support `recent N` and bounded time-window collection.
+5. Deduplicate and persist only article metadata outside the private WeChat session directory.
+6. Expose a small local API suitable for later standalone `@微信` MCP packaging.
+7. Keep WeChat credentials, cookies, local databases and session material private to the runtime.
+
+The first V1 gate is: **one named public account -> newest 20 articles with verified timestamps and no duplicate URLs**.
+
+## Later phases
+
+- Wake gateway / automatic Codespaces Start/Stop orchestration.
+- Standalone `@微信` MCP packaging.
+- Optional integration: expose article URLs to `深析` as a provider without sharing WeChat session material.
