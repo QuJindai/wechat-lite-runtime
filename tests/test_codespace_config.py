@@ -32,6 +32,13 @@ def test_devcontainer_forwards_ui_and_control_ports():
     assert "wechat" in devcontainer["runServices"]
 
 
+def test_codespace_supports_gh_cli_remote_diagnostics():
+    devcontainer = load_json(".devcontainer/devcontainer.json")
+    assert devcontainer["features"]["ghcr.io/devcontainers/features/sshd:1"] == {
+        "version": "latest"
+    }
+
+
 def test_ci_runs_python_module_pytest():
     workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
     assert "python -m pytest -q" in workflow
