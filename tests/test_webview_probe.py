@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import sqlite3
-import time
 from pathlib import Path
 
 import pytest
 
+import app.webview_probe as webview_probe_module
 from app.webview_probe import (
     classify_webview_container,
     inspect_sqlite_schema,
@@ -202,16 +202,27 @@ def test_probe_webview_state_reports_global_budget_truncation(tmp_path: Path, li
     assert result["sensitive_values_returned"] is False
 
 
-def test_probe_webview_state_enforces_elapsed_budget_during_result_assembly(tmp_path: Path):
+def test_probe_webview_state_enforces_elapsed_budget_during_result_assembly(
+    tmp_path: Path,
+    monkeypatch,
+):
     profiles_root = tmp_path / ".xwechat" / "radium" / "web" / "profiles"
-    for index in range(50):
-        (profiles_root / f"multitab_{index:032x}").mkdir(parents=True)
+    (profiles_root / "multitab_00000000000000000000000000000000").mkdir(parents=True)
 
-    started = time.perf_counter()
-    result = probe_webview_state(tmp_path, max_scan_seconds=0.01)
-    elapsed = time.perf_counter() - started
+    class AssemblyDeadlineClock:
+        def __init__(self):
+            self.calls = 0
 
-    assert elapsed < 0.5
+        def monotonic(self):
+            self.calls += 1
+            return 0.0 if self.calls <= 8 else 2.0
+
+    clock = AssemblyDeadlineClock()
+    monkeypatch.setattr(webview_probe_module, "time", clock)
+
+    result = probe_webview_state(tmp_path, max_scan_seconds=1.0)
+
+    assert clock.calls >= 9
     assert result["truncated"] is True
     assert "scan_time_budget" in result["truncation_reasons"]
 
