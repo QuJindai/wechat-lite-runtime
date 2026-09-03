@@ -64,17 +64,24 @@ jobs:
             bash -lc 'cd /workspaces/wechat-lite-runtime && python - <<"PY"
           from pathlib import Path
           from app.account_index import PublicAccountIndex
+          from app.public_accounts import VerifiedAccountIdentity
           state = Path("state")
           index = PublicAccountIndex(state)
-          index.remember("SMOKE INDEX ACCOUNT", "SMOKE_INDEX_BIZ")
-          assert index.resolve("smoke index account") == "SMOKE_INDEX_BIZ"
+          identity = VerifiedAccountIdentity(
+              account_name="SMOKE INDEX ACCOUNT",
+              biz="SMOKE_INDEX_BIZ",
+              provenance="public_seed_article",
+              canonical_seed_url="https://mp.weixin.qq.com/s/SMOKE_INDEX_SEED",
+          )
+          index.remember_verified(identity)
+          assert index.resolve_verified("smoke index account") == identity
           path = state / ".public-account-index.json"
           assert path.stat().st_mode & 0o777 == 0o600
           PY'
           docker compose -f .devcontainer/docker-compose.yml restart workspace
           for i in $(seq 1 30); do
             if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
-              bash -lc 'cd /workspaces/wechat-lite-runtime && python -c "from app.account_index import PublicAccountIndex; from pathlib import Path; assert PublicAccountIndex(Path(\"state\")).resolve(\"SMOKE INDEX ACCOUNT\") == \"SMOKE_INDEX_BIZ\""' 2>/dev/null; then
+              bash -lc 'cd /workspaces/wechat-lite-runtime && python -c "from app.account_index import PublicAccountIndex; from app.public_accounts import VerifiedAccountIdentity; from pathlib import Path; expected = VerifiedAccountIdentity(account_name=\"SMOKE INDEX ACCOUNT\", biz=\"SMOKE_INDEX_BIZ\", provenance=\"public_seed_article\", canonical_seed_url=\"https://mp.weixin.qq.com/s/SMOKE_INDEX_SEED\"); assert PublicAccountIndex(Path(\"state\")).resolve_verified(\"SMOKE INDEX ACCOUNT\") == expected"' 2>/dev/null; then
               exit 0
             fi
             sleep 1
