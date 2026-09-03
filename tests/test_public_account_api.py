@@ -34,7 +34,7 @@ def test_recent_endpoint_requires_bearer_token(tmp_path: Path):
     assert client.get("/v1/public-accounts/示例公众号/recent?limit=20").status_code == 401
 
 
-def test_recent_endpoint_returns_normalized_sanitized_result(tmp_path: Path):
+def test_recent_endpoint_returns_synthetic_content_without_verification_claims(tmp_path: Path):
     app = create_app(
         settings(tmp_path),
         tcp_probe=lambda *_: True,
@@ -52,8 +52,9 @@ def test_recent_endpoint_returns_normalized_sanitized_result(tmp_path: Path):
     assert body["count_satisfied"] is True
     assert body["timestamps_complete"] is True
     assert body["urls_unique"] is True
-    assert body["account_verified"] is True
-    assert body["freshness_verified"] is True
+    assert body["account_verified"] is False
+    assert body["freshness_verified"] is False
+    assert all(article["verified_account"] is False for article in body["articles"])
     assert len(body["articles"]) == 20
     assert all("key=" not in article["canonical_url"] for article in body["articles"])
     assert "cookie" not in response.text.lower()
