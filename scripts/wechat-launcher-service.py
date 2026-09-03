@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-_LISTEN = (os.getenv("WECHAT_LAUNCHER_HOST", "127.0.0.1"), 8790)
+_LISTEN = ("0.0.0.0", 8790)
 _TOKEN_FILE = Path("/config/.control-token")
 _MAX_BODY = 16 * 1024
 _LAUNCH_LOCK = threading.Lock()

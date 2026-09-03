@@ -117,6 +117,6 @@ def test_codespaces_uses_service_forwarding_without_shared_container_namespaces(
     assert "network_mode" not in wechat
     assert workspace["environment"]["WECHAT_WEB_HOST"] == "wechat"
     assert workspace["environment"]["WECHAT_LAUNCHER_ENDPOINT"] == "http://wechat:8790/open"
-    assert wechat["environment"]["WECHAT_LAUNCHER_HOST"] == "0.0.0.0"
+    assert "WECHAT_LAUNCHER_HOST" not in wechat["environment"]
     assert "ports" not in workspace
     assert "ports" not in wechat

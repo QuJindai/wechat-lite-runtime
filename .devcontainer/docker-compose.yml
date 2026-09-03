@@ -36,6 +36,5 @@ services:
       AUTO_START_QQ: 'false'
       ENABLE_WECHAT_AUTO_LOGIN: 'true'
       AUTO_LOGIN_DELAY: '3'
-      WECHAT_LAUNCHER_HOST: 0.0.0.0
       CUSTOM_USER: ${SELKIES_USER:-}
       PASSWORD: ${SELKIES_PASSWORD:-}

@@ -15,9 +15,9 @@ def test_wechat_service_installs_internal_launcher_as_custom_s6_service():
     assert "exec /init" in entrypoint
 
 
-def test_launcher_rpc_defaults_to_loopback_and_is_private_to_compose_network():
+def test_launcher_rpc_is_private_to_compose_network_and_not_forwarded():
     service = (ROOT / "scripts/wechat-launcher-service.py").read_text(encoding="utf-8")
-    assert 'os.getenv("WECHAT_LAUNCHER_HOST", "127.0.0.1")' in service
+    assert '_LISTEN = ("0.0.0.0", 8790)' in service
     assert "ThreadingHTTPServer" in service
     assert "/config/.control-token" in service
     assert "mp.weixin.qq.com" in service
@@ -29,7 +29,6 @@ def test_launcher_rpc_defaults_to_loopback_and_is_private_to_compose_network():
 
     compose = yaml.safe_load((ROOT / ".devcontainer/docker-compose.yml").read_text(encoding="utf-8"))
     wechat = compose["services"]["wechat"]
-    assert wechat["environment"]["WECHAT_LAUNCHER_HOST"] == "0.0.0.0"
     assert "ports" not in wechat
 
 
