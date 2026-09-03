@@ -93,3 +93,25 @@ def test_webview_probe_api_never_returns_cookie_rows(tmp_path: Path):
     assert "PRIVATE" not in rendered
     assert ".mp.weixin.qq.com" not in rendered
     assert "abcdefabcdefabcdefabcdefabcdefab" not in rendered
+
+
+def test_webview_probe_api_handles_corrupt_history_database_without_500(tmp_path: Path):
+    history = (
+        tmp_path
+        / ".xwechat"
+        / "radium"
+        / "web"
+        / "profiles"
+        / "multitab_abcdefabcdefabcdefabcdefabcdefab"
+        / "History"
+    )
+    history.parent.mkdir(parents=True)
+    history.write_bytes(b"SQLite format 3\x00" + b"PRIVATE_CORRUPT_BYTES" * 8)
+
+    client = TestClient(create_app(settings(tmp_path), tcp_probe=lambda *_: True))
+    response = client.get("/v1/wechat/webview-probe", headers=auth())
+
+    assert response.status_code == 200
+    assert "PRIVATE_CORRUPT_BYTES" not in response.text
+    schema = response.json()["profiles"][0]["containers"][0]["sqlite_schema"]
+    assert schema == {"status": "corrupt", "tables": []}

@@ -126,6 +126,29 @@ def test_transport_maps_http_auth_failure_without_echoing_private_url():
         assert secret not in rendered
 
 
+def test_transport_maps_real_redirect_http_error_to_stable_redirect_diagnostic():
+    target = history_seed_from_candidate(candidate())._raw_url
+
+    def opener(request, timeout):
+        raise HTTPError(
+            request.full_url,
+            302,
+            "Found KEY_SECRET",
+            {"Location": target.replace("offset=0", "offset=10")},
+            io.BytesIO(b"PRIVATE_REDIRECT_BODY"),
+        )
+
+    transport = UrllibHistoryTransport(candidate(), opener=opener)
+    with pytest.raises(ProviderError) as exc:
+        transport.get(target)
+
+    assert exc.value.code == "HISTORY_SURFACE_UNAVAILABLE"
+    assert str(exc.value) == "history_redirect_not_allowed"
+    rendered = str(exc.value) + repr(exc.value)
+    for secret in ["KEY_SECRET", "PASS_SECRET", "PRIVATE_REDIRECT_BODY", target]:
+        assert secret not in rendered
+
+
 def test_transport_rejects_cross_origin_final_url_and_oversized_payload():
     target = history_seed_from_candidate(candidate())._raw_url
     redirect_transport = UrllibHistoryTransport(

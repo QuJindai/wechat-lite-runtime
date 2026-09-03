@@ -70,6 +70,31 @@ def test_safe_session_generation_ignores_runtime_metadata_but_tracks_artifacts(t
     assert build_safe_session_generation(tmp_path) == with_artifact
 
 
+def test_safe_session_generation_tracks_real_wechat_webview_credential_surfaces(tmp_path):
+    baseline = build_safe_session_generation(tmp_path)
+    profile = (
+        tmp_path
+        / ".xwechat"
+        / "radium"
+        / "web"
+        / "profiles"
+        / "multitab_PRIVATE_ACCOUNT"
+    )
+    leveldb_log = profile / "Local Storage" / "leveldb" / "000003.log"
+    leveldb_log.parent.mkdir(parents=True)
+    leveldb_log.write_bytes(b"PRIVATE_CREDENTIAL_ONE")
+    after_leveldb = build_safe_session_generation(tmp_path)
+    assert after_leveldb != baseline
+
+    leveldb_log.write_bytes(b"PRIVATE_CREDENTIAL_TWO_WITH_DIFFERENT_SIZE")
+    after_leveldb_change = build_safe_session_generation(tmp_path)
+    assert after_leveldb_change != after_leveldb
+
+    history = profile / "History"
+    history.write_bytes(b"SQLite format 3\x00PUBLIC_HISTORY_SHAPE")
+    assert build_safe_session_generation(tmp_path) != after_leveldb_change
+
+
 def test_cached_pass_requires_exact_target_code_session_and_verdict():
     previous = passing_record()
     assert can_reuse_pass(previous, cache_identity()) is True

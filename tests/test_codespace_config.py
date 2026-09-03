@@ -38,6 +38,11 @@ def test_ci_runs_python_module_pytest():
     assert "python-version: '3.12'" in workflow
 
 
+def test_ci_checks_out_exact_pull_request_head():
+    workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
+
+
 def test_readme_documents_persistence_and_physical_gate():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "state/ -> /config" in readme

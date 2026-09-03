@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import uuid
 from pathlib import Path
 
 from app.public_accounts import VerifiedAccountIdentity, normalize_account_display_name
@@ -10,6 +12,7 @@ _INDEX_FILE = ".public-account-index.json"
 _VERSION = 2
 _MAX_ENTRIES = 500
 _ENTRY_FIELDS = {"account_name", "biz", "provenance", "canonical_seed_url"}
+_INDEX_WRITE_LOCK = threading.RLock()
 
 
 def _normalize_account_name(value: str) -> str:
@@ -68,32 +71,37 @@ class PublicAccountIndex:
         if not isinstance(identity, VerifiedAccountIdentity):
             raise TypeError("verified_identity_required")
         key = _normalize_account_name(identity.account_name)
-        accounts = self._load()
-        if key not in accounts and len(accounts) >= _MAX_ENTRIES:
-            oldest_key = sorted(accounts)[0]
-            accounts.pop(oldest_key, None)
-        accounts[key] = identity
-        payload = {
-            "version": _VERSION,
-            "accounts": {
-                account_key: account_identity.safe_summary()
-                for account_key, account_identity in sorted(accounts.items())
-            },
-        }
+        with _INDEX_WRITE_LOCK:
+            accounts = self._load()
+            if key not in accounts and len(accounts) >= _MAX_ENTRIES:
+                oldest_key = sorted(accounts)[0]
+                accounts.pop(oldest_key, None)
+            accounts[key] = identity
+            payload = {
+                "version": _VERSION,
+                "accounts": {
+                    account_key: account_identity.safe_summary()
+                    for account_key, account_identity in sorted(accounts.items())
+                },
+            }
 
-        self.state_dir.mkdir(parents=True, exist_ok=True)
-        temp = self.state_dir / f"{_INDEX_FILE}.tmp.{os.getpid()}"
-        data = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        try:
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(data)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp, self.path)
-            self.path.chmod(0o600)
-        finally:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            temp = self.state_dir / (
+                f"{_INDEX_FILE}.tmp.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}"
+            )
+            data = (json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode(
+                "utf-8"
+            )
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             try:
-                temp.unlink()
-            except OSError:
-                pass
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp, self.path)
+                self.path.chmod(0o600)
+            finally:
+                try:
+                    temp.unlink()
+                except OSError:
+                    pass

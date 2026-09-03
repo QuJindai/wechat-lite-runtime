@@ -1,5 +1,6 @@
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 from app.account_index import PublicAccountIndex
 from app.public_accounts import VerifiedAccountIdentity
@@ -105,3 +106,25 @@ def test_unverified_name_biz_write_api_is_not_available(tmp_path):
     index = PublicAccountIndex(tmp_path)
     assert not hasattr(index, "remember")
     assert not hasattr(index, "resolve")
+
+
+def test_concurrent_verified_writes_are_merged_without_temp_file_collisions(tmp_path):
+    index = PublicAccountIndex(tmp_path)
+    identities = [
+        identity(
+            account_name=f"并发公众号 {position}",
+            biz=f"BIZ_{position}",
+            seed_url=f"https://mp.weixin.qq.com/s/seed-{position}",
+        )
+        for position in range(50)
+    ]
+
+    with ThreadPoolExecutor(max_workers=16) as executor:
+        list(executor.map(index.remember_verified, identities))
+
+    restored = PublicAccountIndex(tmp_path)
+    assert all(
+        restored.resolve_verified(item.account_name) == item
+        for item in identities
+    )
+    assert list(tmp_path.glob(".public-account-index.json.tmp.*")) == []

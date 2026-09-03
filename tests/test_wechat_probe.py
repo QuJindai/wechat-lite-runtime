@@ -25,6 +25,8 @@ def test_classify_artifact_recognizes_only_structural_classes(tmp_path: Path):
         state / "webview" / "User Data" / "Default" / "Cache" / "data_1": "webview_cache",
         state / "webview" / "User Data" / "Default" / "Cookies": "cookie_store",
         state / "webview" / "Cache" / "mp.weixin.qq.com" / "index": "mp_weixin_trace",
+        state / ".xwechat" / "radium" / "web" / "profiles" / "multitab_private" / "History": "webview_cache",
+        state / ".xwechat" / "radium" / "web" / "profiles" / "multitab_private" / "Local Storage" / "leveldb" / "000003.log": "webview_cache",
         state / "misc" / "random.sqlite": "other_candidate",
         state / "misc" / "notes.txt": None,
     }

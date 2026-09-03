@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -118,6 +119,16 @@ def test_sqlite_schema_redacts_unknown_table_and_column_identifiers(tmp_path: Pa
     ]
 
 
+def test_sqlite_schema_reports_corrupt_database_without_raising_or_echoing_bytes(tmp_path: Path):
+    db = tmp_path / "History"
+    db.write_bytes(b"SQLite format 3\x00" + b"PRIVATE_CORRUPT_BYTES" * 8)
+
+    result = inspect_sqlite_schema(db)
+
+    assert result == {"status": "corrupt", "tables": []}
+    assert "PRIVATE_CORRUPT_BYTES" not in repr(result)
+
+
 def test_probe_webview_state_sanitizes_profile_ids_and_exposes_no_values(tmp_path: Path):
     web_root = build_web_root(tmp_path)
     profile = web_root / "profiles" / "multitab_0123456789abcdef0123456789abcdef"
@@ -189,6 +200,20 @@ def test_probe_webview_state_reports_global_budget_truncation(tmp_path: Path, li
     assert result["truncated"] is True
     assert reason in result["truncation_reasons"]
     assert result["sensitive_values_returned"] is False
+
+
+def test_probe_webview_state_enforces_elapsed_budget_during_result_assembly(tmp_path: Path):
+    profiles_root = tmp_path / ".xwechat" / "radium" / "web" / "profiles"
+    for index in range(50):
+        (profiles_root / f"multitab_{index:032x}").mkdir(parents=True)
+
+    started = time.perf_counter()
+    result = probe_webview_state(tmp_path, max_scan_seconds=0.01)
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.5
+    assert result["truncated"] is True
+    assert "scan_time_budget" in result["truncation_reasons"]
 
 
 def test_probe_missing_web_root_is_explicit(tmp_path: Path):

@@ -223,6 +223,11 @@ class UrllibHistoryTransport:
         except urllib.error.HTTPError as exc:
             if exc.code in {401, 403}:
                 raise ProviderError("LOGIN_REQUIRED", "history_auth_rejected") from exc
+            if 300 <= exc.code < 400:
+                raise ProviderError(
+                    "HISTORY_SURFACE_UNAVAILABLE",
+                    "history_redirect_not_allowed",
+                ) from exc
             raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_http_error") from exc
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise ProviderError("HISTORY_SURFACE_UNAVAILABLE", "history_transport_unavailable") from exc

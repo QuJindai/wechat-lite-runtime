@@ -70,6 +70,9 @@ class _ScanBudget:
         self.stopped = True
         return False
 
+    def remaining_seconds(self) -> float:
+        return max(0.0, self.max_scan_seconds - (time.monotonic() - self.started_at))
+
     def admit_directory(self) -> bool:
         if not self.check_time():
             return False
@@ -200,7 +203,13 @@ def _safe_identifier(value: str, allowed: set[str], label: str, position: int) -
     return value if value in allowed else f"<redacted-{label}-{position}>"
 
 
-def inspect_sqlite_schema(path: Path) -> dict[str, object]:
+def inspect_sqlite_schema(
+    path: Path,
+    *,
+    budget: _ScanBudget | None = None,
+) -> dict[str, object]:
+    if budget is not None and not budget.check_time():
+        return {"status": "budget_exhausted", "tables": []}
     if not path.is_file():
         return {"status": "not_sqlite", "tables": []}
     try:
@@ -210,12 +219,20 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
         return {"status": "unreadable", "tables": []}
     if header != b"SQLite format 3\x00":
         return {"status": "not_sqlite", "tables": []}
+    if budget is not None and not budget.check_time():
+        return {"status": "budget_exhausted", "tables": []}
 
     uri = f"file:{path.as_posix()}?mode=ro"
+    timeout = 0.2 if budget is None else max(0.001, min(0.2, budget.remaining_seconds()))
     try:
-        conn = sqlite3.connect(uri, uri=True, timeout=0.2)
+        conn = sqlite3.connect(uri, uri=True, timeout=timeout)
     except sqlite3.OperationalError:
         return {"status": "locked", "tables": []}
+    except sqlite3.DatabaseError:
+        return {"status": "corrupt", "tables": []}
+
+    if budget is not None:
+        conn.set_progress_handler(lambda: 0 if budget.check_time() else 1, 100)
 
     tables: list[dict[str, object]] = []
     try:
@@ -225,6 +242,8 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
             (MAX_SCHEMA_TABLES,),
         ).fetchall()
         for table_position, (table_name,) in enumerate(rows, start=1):
+            if budget is not None and not budget.check_time():
+                return {"status": "budget_exhausted", "tables": tables}
             raw_table = str(table_name)
             columns = conn.execute(
                 f"PRAGMA table_info({_quote_identifier(raw_table)})"
@@ -240,7 +259,11 @@ def inspect_sqlite_schema(path: Path) -> dict[str, object]:
                 }
             )
     except sqlite3.OperationalError:
+        if budget is not None and budget.stopped:
+            return {"status": "budget_exhausted", "tables": tables}
         return {"status": "locked", "tables": []}
+    except sqlite3.DatabaseError:
+        return {"status": "corrupt", "tables": []}
     finally:
         conn.close()
     return {"status": "ok", "tables": tables}
@@ -283,9 +306,13 @@ def _sum_markers(
     files: Sequence[Path],
     marker_counts: dict[Path, dict[str, int]],
     root: Path,
+    *,
+    budget: _ScanBudget | None = None,
 ) -> dict[str, int]:
     totals = {marker.decode("ascii"): 0 for marker in FIXED_MARKERS}
     for path in files:
+        if budget is not None and not budget.check_time():
+            break
         try:
             path.relative_to(root)
         except ValueError:
@@ -341,39 +368,91 @@ def probe_webview_state(
             break
         file_markers[path] = _file_marker_counts(path, budget=budget)
 
-    profile_dirs = sorted(
-        [path for path in paths if path.is_dir() and path.parent == profiles_root],
-        key=lambda path: path.name,
-    )
+    file_set = set(files)
+    profile_dirs: list[Path] = []
+    for path in paths:
+        if not budget.check_time():
+            break
+        if path.parent == profiles_root and path not in file_set:
+            profile_dirs.append(path)
+    profile_dirs.sort(key=lambda path: path.name)
+
+    profile_by_name = {profile.name: profile for profile in profile_dirs}
+    paths_by_profile = {profile: [] for profile in profile_dirs}
+    files_by_profile = {profile: [] for profile in profile_dirs}
+    for path in paths:
+        if not budget.check_time():
+            break
+        try:
+            relative = path.relative_to(profiles_root)
+        except ValueError:
+            continue
+        if not relative.parts:
+            continue
+        profile = profile_by_name.get(relative.parts[0])
+        if profile is None:
+            continue
+        paths_by_profile[profile].append(path)
+        if path in file_set:
+            files_by_profile[profile].append(path)
+
     profiles: list[dict[str, object]] = []
     marker_totals = dict(zero_markers)
     for profile in profile_dirs:
-        profile_files = [path for path in files if path == profile or profile in path.parents]
-        profile_markers = _sum_markers(profile_files, file_markers, profile)
+        if not budget.check_time():
+            break
+        profile_files = files_by_profile[profile]
+        profile_markers = _sum_markers(
+            profile_files,
+            file_markers,
+            profile,
+            budget=budget,
+        )
         for key, value in profile_markers.items():
             marker_totals[key] += value
 
         containers: list[dict[str, object]] = []
-        candidates = sorted(
-            [path for path in paths if classify_webview_container(path, web_root)],
-            key=lambda path: path.as_posix(),
-        )
+        candidates: list[Path] = []
+        for path in paths_by_profile[profile]:
+            if not budget.check_time():
+                break
+            if classify_webview_container(path, web_root):
+                candidates.append(path)
+        candidates.sort(key=lambda path: path.as_posix())
+
+        contained_files: dict[Path, list[Path]] = {candidate: [] for candidate in candidates}
+        candidate_set = set(candidates)
+        for path in profile_files:
+            if not budget.check_time():
+                break
+            current = path
+            while True:
+                if current in candidate_set:
+                    contained_files[current].append(path)
+                if current == profile or current.parent == current:
+                    break
+                current = current.parent
+
         for item in candidates:
-            if profile not in item.parents and item != profile:
-                continue
+            if not budget.check_time():
+                break
             container_class = classify_webview_container(item, web_root)
             if container_class == "profile_root":
                 continue
-            contained_files = [path for path in profile_files if path == item or item in path.parents]
+            item_files = contained_files[item]
             entry: dict[str, object] = {
                 "class": container_class,
                 "relative_path": _sanitize_relative(item, state_dir),
-                "file_count": len(contained_files),
-                "marker_counts": _sum_markers(contained_files, file_markers, item),
+                "file_count": len(item_files),
+                "marker_counts": _sum_markers(
+                    item_files,
+                    file_markers,
+                    item,
+                    budget=budget,
+                ),
             }
             if container_class in {"cookie_sqlite", "history_sqlite"} and item in files:
-                entry["sqlite_schema"] = inspect_sqlite_schema(item)
-                budget.check_time()
+                entry["sqlite_schema"] = inspect_sqlite_schema(item, budget=budget)
             containers.append(entry)
 
         profiles.append(

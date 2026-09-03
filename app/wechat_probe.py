@@ -75,6 +75,9 @@ def classify_artifact(path: Path, state_dir: Path) -> str | None:
     if "xwechat_files" in parts and path.suffix.lower() in _DB_SUFFIXES:
         return "xwechat_db"
 
+    if len(parts) >= 3 and parts[:3] == [".xwechat", "radium", "web"]:
+        return "webview_cache"
+
     if any(
         marker in parts
         for marker in {"webview", "cef", "chromium", "cache", "code cache", "gpucache", "user data"}
