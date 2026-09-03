@@ -45,6 +45,7 @@ class Settings:
     wechat_host: str
     wechat_port: int
     probe_timeout: float
+    launcher_endpoint: str = "http://127.0.0.1:8790/open"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -60,4 +61,8 @@ class Settings:
             wechat_host=os.getenv("WECHAT_WEB_HOST", "wechat"),
             wechat_port=int(os.getenv("WECHAT_WEB_PORT", "3001")),
             probe_timeout=float(os.getenv("WECHAT_PROBE_TIMEOUT", "0.5")),
+            launcher_endpoint=os.getenv(
+                "WECHAT_LAUNCHER_ENDPOINT",
+                "http://127.0.0.1:8790/open",
+            ),
         )

@@ -41,6 +41,7 @@ def test_settings_from_env(monkeypatch, tmp_path: Path):
     monkeypatch.setenv("WECHAT_WEB_HOST", "wechat")
     monkeypatch.setenv("WECHAT_WEB_PORT", "3001")
     monkeypatch.setenv("WECHAT_PROBE_TIMEOUT", "0.25")
+    monkeypatch.setenv("WECHAT_LAUNCHER_ENDPOINT", "http://wechat:8790/open")
 
     settings = Settings.from_env()
 
@@ -50,6 +51,7 @@ def test_settings_from_env(monkeypatch, tmp_path: Path):
     assert settings.wechat_host == "wechat"
     assert settings.wechat_port == 3001
     assert settings.probe_timeout == 0.25
+    assert settings.launcher_endpoint == "http://wechat:8790/open"
 
 
 def test_probe_tcp_detects_listening_socket():

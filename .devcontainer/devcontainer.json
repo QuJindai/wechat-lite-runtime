@@ -13,11 +13,11 @@
   ],
   "shutdownAction": "stopCompose",
   "forwardPorts": [
-    3001,
+    "wechat:3001",
     8787
   ],
   "portsAttributes": {
-    "3001": {
+    "wechat:3001": {
       "label": "WeChat Web UI",
       "protocol": "https",
       "onAutoForward": "openBrowser"

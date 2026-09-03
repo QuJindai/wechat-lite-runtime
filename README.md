@@ -115,7 +115,7 @@ Allowed outside the private runtime: public-account name, public biz identifier,
 
 Not exposed: cookies, bearer/session tokens, `key`, `pass_ticket`, `appmsg_token`, raw History rows, browser-profile files, QR contents, contacts, chats, request headers or encryption keys.
 
-The internal workspace-to-WeChat launcher bridge listens only on `127.0.0.1:8790`; it is not forwarded through Codespaces.
+The internal workspace-to-WeChat launcher bridge is reachable only on the private Compose network as `wechat:8790`; it requires the runtime bearer token and is not published or forwarded through Codespaces.
 
 ## Diagnostic probes
 

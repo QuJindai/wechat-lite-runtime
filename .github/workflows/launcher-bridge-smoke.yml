@@ -40,7 +40,7 @@ jobs:
         run: |
           for i in $(seq 1 90); do
             if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
-              python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8790/healthz', timeout=1).read().decode())"; then
+              python -c "import urllib.request; print(urllib.request.urlopen('http://wechat:8790/healthz', timeout=1).read().decode())"; then
               exit 0
             fi
             sleep 2
@@ -60,7 +60,7 @@ jobs:
           docker compose -f .devcontainer/docker-compose.yml ps
           exit 1
 
-      - name: Invoke WeChat through workspace-to-container loopback bridge
+      - name: Invoke WeChat through the private Compose bridge
         run: |
           docker compose -f .devcontainer/docker-compose.yml exec -T workspace python - <<'PY'
           import json
@@ -68,7 +68,7 @@ jobs:
 
           target = 'https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=TEST_BIZ&scene=124#wechat_redirect'
           request = urllib.request.Request(
-              'http://127.0.0.1:8790/open',
+              'http://wechat:8790/open',
               data=json.dumps({'url': target}).encode(),
               headers={
                   'Authorization': 'Bearer test-control-token',
@@ -98,7 +98,7 @@ jobs:
 
           account_name = 'SMOKE_PUBLIC_ACCOUNT_NAME'
           request = urllib.request.Request(
-              'http://127.0.0.1:8790/search',
+              'http://wechat:8790/search',
               data=json.dumps({'account_name': account_name}).encode(),
               headers={
                   'Authorization': 'Bearer test-control-token',

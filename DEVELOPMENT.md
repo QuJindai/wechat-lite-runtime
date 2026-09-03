@@ -80,7 +80,7 @@ Implemented:
 - candidate rotation: stale newest credential automatically falls back to older valid candidates
 - private History seed reuse before re-opening WeChat
 - restricted `urllib` transport: same-host/path validation, redirect guard, timeout and response-size limits
-- internal workspace -> WeChat-container bridge on `127.0.0.1:8790`
+- internal workspace -> WeChat-container bridge on private Compose DNS `wechat:8790`
 - bridge is not forwarded through Codespaces and does not require Docker socket access
 - real GitHub-hosted Compose smoke is an unauthenticated failure-path integration smoke across FastAPI -> bridge -> WeChat container -> scanner/discover
 - it does not prove logged-in newest-20 pagination; that remains part of the physical gate

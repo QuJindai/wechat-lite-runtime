@@ -27,7 +27,8 @@ def test_wechat_service_contract():
 
 def test_devcontainer_forwards_ui_and_control_ports():
     devcontainer = load_json(".devcontainer/devcontainer.json")
-    assert {3001, 8787}.issubset(set(devcontainer["forwardPorts"]))
+    assert 8787 in devcontainer["forwardPorts"]
+    assert "wechat:3001" in devcontainer["forwardPorts"]
     assert devcontainer["service"] == "workspace"
     assert "wechat" in devcontainer["runServices"]
 
@@ -82,7 +83,7 @@ def test_development_doc_records_physical_login_gate_passed():
 
 def test_wechat_ui_auto_opens_when_codespace_starts():
     devcontainer = load_json(".devcontainer/devcontainer.json")
-    assert devcontainer["portsAttributes"]["3001"]["onAutoForward"] == "openBrowser"
+    assert devcontainer["portsAttributes"]["wechat:3001"]["onAutoForward"] == "openBrowser"
 
 
 def test_readme_documents_one_command_acceptance():
@@ -108,12 +109,14 @@ def test_readme_has_branch_specific_codespaces_quickstart_link():
     assert "https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1" in readme
 
 
-def test_wechat_shares_workspace_network_for_codespaces_port_forwarding():
+def test_codespaces_uses_service_forwarding_without_shared_container_namespaces():
     compose = load_yaml(".devcontainer/docker-compose.yml")
     workspace = compose["services"]["workspace"]
     wechat = compose["services"]["wechat"]
     assert "network_mode" not in workspace
-    assert wechat["network_mode"] == "service:workspace"
-    assert workspace["environment"]["WECHAT_WEB_HOST"] == "127.0.0.1"
+    assert "network_mode" not in wechat
+    assert workspace["environment"]["WECHAT_WEB_HOST"] == "wechat"
+    assert workspace["environment"]["WECHAT_LAUNCHER_ENDPOINT"] == "http://wechat:8790/open"
+    assert wechat["environment"]["WECHAT_LAUNCHER_HOST"] == "0.0.0.0"
     assert "ports" not in workspace
     assert "ports" not in wechat

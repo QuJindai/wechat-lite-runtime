@@ -43,7 +43,7 @@ jobs:
         run: |
           for i in $(seq 1 90); do
             if docker compose -f .devcontainer/docker-compose.yml exec -T workspace \
-              python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8790/healthz', timeout=1).read()" 2>/dev/null && \
+              python -c "import urllib.request; urllib.request.urlopen('http://wechat:8790/healthz', timeout=1).read()" 2>/dev/null && \
                docker compose -f .devcontainer/docker-compose.yml exec -T wechat \
               bash -lc "pgrep -f '/opt/wechat/wechat|/usr/bin/wechat' >/dev/null"; then
               exit 0

@@ -60,18 +60,18 @@ class HttpWechatURLLauncher:
         parsed = urlsplit(endpoint)
         if (
             parsed.scheme != "http"
-            or parsed.hostname != "127.0.0.1"
+            or parsed.hostname not in {"127.0.0.1", "wechat"}
             or parsed.port != 8790
             or parsed.path != "/open"
             or parsed.query
             or parsed.fragment
         ):
-            raise ValueError("launcher_endpoint_must_be_loopback")
+            raise ValueError("launcher_endpoint_not_allowed")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds_out_of_range")
         self._control_token = token
         self.endpoint = endpoint
-        self.search_endpoint = "http://127.0.0.1:8790/search"
+        self.search_endpoint = f"http://{parsed.hostname}:8790/search"
         self._opener = opener
         self.timeout_seconds = float(timeout_seconds)
 

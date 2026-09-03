@@ -51,11 +51,17 @@ def test_http_launcher_calls_only_loopback_bridge_and_keeps_token_private():
     assert "BIZ_PUBLIC" not in rendered
 
 
-def test_http_launcher_rejects_non_loopback_bridge_endpoint():
-    with pytest.raises(ValueError):
-        HttpWechatURLLauncher("secret", endpoint="http://wechat:8790/open")
+def test_http_launcher_allows_only_private_runtime_bridge_endpoints():
+    launcher = HttpWechatURLLauncher("secret", endpoint="http://wechat:8790/open")
+    assert launcher.endpoint == "http://wechat:8790/open"
+    assert launcher.search_endpoint == "http://wechat:8790/search"
+
     with pytest.raises(ValueError):
         HttpWechatURLLauncher("secret", endpoint="https://example.com/open")
+    with pytest.raises(ValueError):
+        HttpWechatURLLauncher("secret", endpoint="http://attacker:8790/open")
+    with pytest.raises(ValueError):
+        HttpWechatURLLauncher("secret", endpoint="http://wechat:8790/not-open")
 
 
 def test_http_launcher_network_failure_is_safe_failed_dispatch():

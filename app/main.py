@@ -56,7 +56,10 @@ def create_app(
     bearer = HTTPBearer(auto_error=False)
 
     bridge_launcher = (
-        HttpWechatURLLauncher(settings.control_token)
+        HttpWechatURLLauncher(
+            settings.control_token,
+            endpoint=settings.launcher_endpoint,
+        )
         if settings.control_token
         else SubprocessWechatURLLauncher()
     )

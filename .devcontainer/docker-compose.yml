@@ -8,12 +8,12 @@ services:
     - ..:/workspaces/wechat-lite-runtime:cached
     environment:
       WECHAT_STATE_DIR: /workspaces/wechat-lite-runtime/state
-      WECHAT_WEB_HOST: 127.0.0.1
+      WECHAT_WEB_HOST: wechat
       WECHAT_WEB_PORT: '3001'
       WECHAT_PROBE_TIMEOUT: '0.5'
+      WECHAT_LAUNCHER_ENDPOINT: http://wechat:8790/open
   wechat:
     image: ghcr.io/nickrunning/wechat-selkies:0.0.16
-    network_mode: service:workspace
     restart: unless-stopped
     entrypoint:
     - /bin/bash
@@ -36,5 +36,6 @@ services:
       AUTO_START_QQ: 'false'
       ENABLE_WECHAT_AUTO_LOGIN: 'true'
       AUTO_LOGIN_DELAY: '3'
+      WECHAT_LAUNCHER_HOST: 0.0.0.0
       CUSTOM_USER: ${SELKIES_USER:-}
       PASSWORD: ${SELKIES_PASSWORD:-}
