@@ -39,6 +39,22 @@ def test_codespace_supports_gh_cli_remote_diagnostics():
     }
 
 
+def test_workspace_image_removes_unused_broken_yarn_apt_source_before_features():
+    compose = load_yaml(".devcontainer/docker-compose.yml")
+    workspace = compose["services"]["workspace"]
+    assert workspace["build"] == {
+        "context": "..",
+        "dockerfile": ".devcontainer/Dockerfile",
+    }
+    assert "image" not in workspace
+
+    dockerfile = (ROOT / ".devcontainer/Dockerfile").read_text(encoding="utf-8")
+    assert dockerfile.startswith(
+        "FROM mcr.microsoft.com/devcontainers/python:1-3.12-bookworm\n"
+    )
+    assert "rm -f /etc/apt/sources.list.d/yarn.list" in dockerfile
+
+
 def test_ci_runs_python_module_pytest():
     workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
     assert "python -m pytest -q" in workflow
