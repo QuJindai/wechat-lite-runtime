@@ -10,7 +10,7 @@ on:
       - '.devcontainer/**'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   runtime-cli-probe:
@@ -96,10 +96,9 @@ jobs:
             echo "RAW_MARKER_FILES=$raw_marker_files"
           } > /tmp/runtime-cli-probe/url-invocation.txt
 
-      - name: Persist sanitized CLI summary
-        if: always() && github.event_name == 'push'
+      - name: Write sanitized CLI summary
+        if: always()
         run: |
-          mkdir -p docs
           {
             echo '# Runtime CLI Probe Latest'
             echo
@@ -119,14 +118,8 @@ jobs:
             echo '```text'
             cat /tmp/runtime-cli-probe/url-invocation.txt 2>/dev/null || true
             echo '```'
-          } > docs/runtime-cli-probe-latest.md
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/runtime-cli-probe-latest.md
-          if ! git diff --cached --quiet; then
-            git commit -m 'ci: record runtime CLI probe'
-            git push
-          fi
+          } > /tmp/runtime-cli-probe/summary.md
+          cat /tmp/runtime-cli-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload sanitized CLI diagnostic
         if: always()

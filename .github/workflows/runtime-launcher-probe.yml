@@ -9,7 +9,7 @@ on:
       - '.github/workflows/runtime-launcher-probe.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   launcher-probe:
@@ -90,10 +90,9 @@ jobs:
             sed -E "s#https?://[^ ]+#<redacted-url>#g; s#AUTOTEST_[A-Z_]+#<redacted-marker>#g" "$log" | head -n 80
           ' > /tmp/runtime-launcher-probe/log.txt || true
 
-      - name: Persist sanitized launcher result
-        if: always() && github.event_name == 'push'
+      - name: Write sanitized launcher summary
+        if: always()
         run: |
-          mkdir -p docs
           {
             echo '# Runtime Launcher Probe Latest'
             echo
@@ -113,14 +112,8 @@ jobs:
             echo '```text'
             cat /tmp/runtime-launcher-probe/log.txt 2>/dev/null || true
             echo '```'
-          } > docs/runtime-launcher-probe-latest.md
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add docs/runtime-launcher-probe-latest.md
-          if ! git diff --cached --quiet; then
-            git commit -m 'ci: record runtime launcher probe'
-            git push
-          fi
+          } > /tmp/runtime-launcher-probe/summary.md
+          cat /tmp/runtime-launcher-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload sanitized launcher diagnostic
         if: always()

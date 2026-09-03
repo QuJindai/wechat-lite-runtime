@@ -69,7 +69,7 @@ Status:
 - `V1_ACCOUNT_BOOTSTRAP_SOFTWARE = PASS`
 - `V1_LIVE_HTTP_TRANSPORT_SOFTWARE = PASS`
 - `V1_LAUNCHER_BRIDGE = PASS`
-- `V1_LIVE_RUNTIME_SMOKE = PASS`
+- `V1_LIVE_RUNTIME_FAILURE_PATH_SMOKE = PASS`
 
 Implemented:
 
@@ -82,7 +82,8 @@ Implemented:
 - restricted `urllib` transport: same-host/path validation, redirect guard, timeout and response-size limits
 - internal workspace -> WeChat-container bridge on `127.0.0.1:8790`
 - bridge is not forwarded through Codespaces and does not require Docker socket access
-- real GitHub-hosted Compose smoke validates FastAPI -> bridge -> WeChat container -> scanner/discover flow
+- real GitHub-hosted Compose smoke is an unauthenticated failure-path integration smoke across FastAPI -> bridge -> WeChat container -> scanner/discover
+- it does not prove logged-in newest-20 pagination; that remains part of the physical gate
 
 ## V1 UI fallback and name-only discovery
 

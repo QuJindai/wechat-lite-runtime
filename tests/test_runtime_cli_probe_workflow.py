@@ -13,12 +13,13 @@ def test_runtime_cli_probe_starts_real_wechat_container_and_uploads_sanitized_ar
     assert "runtime-cli-probe" in workflow
 
 
-def test_runtime_cli_probe_persists_only_sanitized_summary_to_repository():
+def test_runtime_cli_probe_publishes_only_sanitized_summary_artifacts():
     workflow = (ROOT / ".github/workflows/runtime-cli-probe.yml").read_text(encoding="utf-8")
-    assert "contents: write" in workflow
-    assert "docs/runtime-cli-probe-latest.md" in workflow
-    assert "git commit -m 'ci: record runtime CLI probe'" in workflow
-    assert "git push" in workflow
+    assert "contents: read" in workflow
+    assert "/tmp/runtime-cli-probe/summary.md" in workflow
+    assert "$GITHUB_STEP_SUMMARY" in workflow
+    assert "git commit" not in workflow
+    assert "git push" not in workflow
     assert "<redacted>" in workflow
     assert "cookie" not in workflow.lower()
     assert "pass_ticket" not in workflow
