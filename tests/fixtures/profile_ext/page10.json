@@ -1,0 +1,6 @@
+{
+  "ret": 0,
+  "can_msg_continue": 0,
+  "next_offset": 20,
+  "general_msg_list": "{\"list\":[{\"comm_msg_info\":{\"datetime\":1788300000},\"app_msg_ext_info\":{\"title\":\"Article 3\",\"content_url\":\"https://mp.weixin.qq.com/s?__biz=BIZPUB&amp;mid=1002&amp;idx=1&amp;sn=SN3&amp;pass_ticket=PASS3\",\"multi_app_msg_item_list\":[]}}]}"
+}

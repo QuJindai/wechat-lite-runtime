@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PID_FILE="/tmp/wechat-lite-runtime-api.pid"
 LOG_FILE="/tmp/wechat-lite-runtime-api.log"
 HEALTH_URL="http://127.0.0.1:8787/healthz"
+FORCE_RESTART="${WECHAT_CONTROL_FORCE_RESTART:-0}"
 
 cd "$ROOT_DIR"
 
@@ -22,18 +23,34 @@ except Exception:
 PY
 }
 
-if healthcheck; then
-  echo "CONTROL_API_READY=1"
-  exit 0
-fi
+stop_pid_file_process() {
+  if [[ -f "$PID_FILE" ]]; then
+    existing_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
+      kill "$existing_pid" 2>/dev/null || true
+      for _ in $(seq 1 20); do
+        if ! kill -0 "$existing_pid" 2>/dev/null; then
+          break
+        fi
+        sleep 0.1
+      done
+    fi
+    rm -f "$PID_FILE"
+  fi
+}
 
-if [[ -f "$PID_FILE" ]]; then
-  existing_pid="$(cat "$PID_FILE" 2>/dev/null || true)"
-  if [[ -n "$existing_pid" ]] && kill -0 "$existing_pid" 2>/dev/null; then
-    kill "$existing_pid" 2>/dev/null || true
+if [[ "$FORCE_RESTART" == "1" ]]; then
+  stop_pid_file_process
+  if healthcheck; then
+    pkill -f 'python -m uvicorn app.main:app.*--port 8787' 2>/dev/null || true
     sleep 0.2
   fi
-  rm -f "$PID_FILE"
+else
+  if healthcheck; then
+    echo "CONTROL_API_READY=1"
+    exit 0
+  fi
+  stop_pid_file_process
 fi
 
 if ! python - <<'PY'

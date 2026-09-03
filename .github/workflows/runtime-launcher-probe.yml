@@ -1,0 +1,128 @@
+name: Runtime Launcher Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/v1-public-account-discovery
+    paths:
+      - '.github/workflows/runtime-launcher-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  launcher-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WECHAT_IMAGE: ghcr.io/nickrunning/wechat-selkies:0.0.16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start isolated real WeChat runtime
+        run: |
+          mkdir -p /tmp/runtime-launcher-probe
+          docker compose -f .devcontainer/docker-compose.yml up -d wechat
+          cid="$(docker compose -f .devcontainer/docker-compose.yml ps -q wechat)"
+          test -n "$cid"
+          echo "$cid" > /tmp/runtime-launcher-probe/container-id.txt
+          for i in $(seq 1 90); do
+            if docker exec "$cid" bash -lc 'timeout 1 bash -c "</dev/tcp/127.0.0.1/3001"' 2>/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Inspect launcher and binary identity
+        run: |
+          cid="$(cat /tmp/runtime-launcher-probe/container-id.txt)"
+          docker exec "$cid" bash -lc '
+            echo "USR_BIN_WECHAT=$(readlink -f /usr/bin/wechat 2>/dev/null || echo /usr/bin/wechat)"
+            echo "OPT_WECHAT=$(readlink -f /opt/wechat/wechat 2>/dev/null || echo /opt/wechat/wechat)"
+            file /usr/bin/wechat 2>/dev/null || true
+            file /opt/wechat/wechat 2>/dev/null || true
+            ls -l /usr/bin/wechat /opt/wechat/wechat 2>/dev/null || true
+          ' | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' > /tmp/runtime-launcher-probe/identity.txt
+
+      - name: Compare secondary invocation exit codes
+        run: |
+          cid="$(cat /tmp/runtime-launcher-probe/container-id.txt)"
+          mp_url='https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=AUTOTEST_BIZ&scene=124#wechat_redirect'
+          plain_url='https://example.com/AUTOTEST_URL'
+          windows_before="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
+
+          probe_call() {
+            label="$1"; shift
+            set +e
+            docker exec -e DISPLAY=:1 "$cid" bash -lc 'timeout 8s "$@" >/tmp/secondary-call.log 2>&1' bash "$@"
+            code=$?
+            set -e
+            printf '%s=%s\n' "$label" "$code"
+          }
+
+          {
+            echo "WINDOWS_BEFORE=$windows_before"
+            probe_call USR_NO_ARGS /usr/bin/wechat
+            probe_call USR_PLAIN_HTTPS /usr/bin/wechat "$plain_url"
+            probe_call USR_PROFILE_EXT /usr/bin/wechat "$mp_url"
+            probe_call OPT_NO_ARGS /opt/wechat/wechat
+            probe_call OPT_PLAIN_HTTPS /opt/wechat/wechat "$plain_url"
+            probe_call OPT_PROFILE_EXT /opt/wechat/wechat "$mp_url"
+            sleep 3
+            windows_after="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
+            echo "WINDOWS_AFTER=$windows_after"
+          } > /tmp/runtime-launcher-probe/exits.txt
+
+      - name: Record sanitized secondary-call log class
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-launcher-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          docker exec "$cid" bash -lc '
+            log=/tmp/secondary-call.log
+            if [ ! -s "$log" ]; then
+              echo LOG_EMPTY=1
+              exit 0
+            fi
+            echo LOG_EMPTY=0
+            sed -E "s#https?://[^ ]+#<redacted-url>#g; s#AUTOTEST_[A-Z_]+#<redacted-marker>#g" "$log" | head -n 80
+          ' > /tmp/runtime-launcher-probe/log.txt || true
+
+      - name: Write sanitized launcher summary
+        if: always()
+        run: |
+          {
+            echo '# Runtime Launcher Probe Latest'
+            echo
+            echo "- head_sha: \`${GITHUB_SHA}\`"
+            echo
+            echo '## Identity'
+            echo '```text'
+            cat /tmp/runtime-launcher-probe/identity.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Secondary invocation exits'
+            echo '```text'
+            cat /tmp/runtime-launcher-probe/exits.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## Last call log'
+            echo '```text'
+            cat /tmp/runtime-launcher-probe/log.txt 2>/dev/null || true
+            echo '```'
+          } > /tmp/runtime-launcher-probe/summary.md
+          cat /tmp/runtime-launcher-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized launcher diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-launcher-probe
+          path: /tmp/runtime-launcher-probe/
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .devcontainer/docker-compose.yml down -v || true

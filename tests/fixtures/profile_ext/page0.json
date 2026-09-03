@@ -1,0 +1,6 @@
+{
+  "ret": 0,
+  "can_msg_continue": 1,
+  "next_offset": 10,
+  "general_msg_list": "{\"list\":[{\"comm_msg_info\":{\"datetime\":1788307200},\"app_msg_ext_info\":{\"title\":\"Article 1\",\"content_url\":\"https://mp.weixin.qq.com/s?__biz=BIZPUB&amp;mid=1000&amp;idx=1&amp;sn=SN1&amp;key=SECRET1&amp;pass_ticket=PASS1\",\"multi_app_msg_item_list\":[{\"title\":\"Article 1B\",\"content_url\":\"https://mp.weixin.qq.com/s?__biz=BIZPUB&amp;mid=1000&amp;idx=2&amp;sn=SN1B&amp;key=SECRET1B\"}]}},{\"comm_msg_info\":{\"datetime\":1788303600},\"app_msg_ext_info\":{\"title\":\"Article 2\",\"content_url\":\"https://mp.weixin.qq.com/s?__biz=BIZPUB&amp;mid=1001&amp;idx=1&amp;sn=SN2&amp;key=SECRET2\",\"multi_app_msg_item_list\":[]}}]}"
+}

@@ -1,0 +1,134 @@
+name: Runtime CLI Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/v1-public-account-discovery
+    paths:
+      - '.github/workflows/runtime-cli-probe.yml'
+      - '.devcontainer/**'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-cli-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      WECHAT_IMAGE: ghcr.io/nickrunning/wechat-selkies:0.0.16
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare isolated probe state
+        run: |
+          mkdir -p state-runtime-cli-probe /tmp/runtime-cli-probe
+          printf 'WECHAT_IMAGE=%s\n' "$WECHAT_IMAGE" > /tmp/runtime-cli-probe/context.txt
+          printf 'state_dir=state-runtime-cli-probe\n' >> /tmp/runtime-cli-probe/context.txt
+
+      - name: Start real WeChat container
+        run: |
+          docker compose -f .devcontainer/docker-compose.yml up -d wechat
+          cid="$(docker compose -f .devcontainer/docker-compose.yml ps -q wechat)"
+          test -n "$cid"
+          echo "$cid" > /tmp/runtime-cli-probe/container-id.txt
+          for i in $(seq 1 90); do
+            if docker exec "$cid" bash -lc 'timeout 1 bash -c "</dev/tcp/127.0.0.1/3001"' 2>/dev/null; then
+              echo 'port_3001=ready' >> /tmp/runtime-cli-probe/context.txt
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'port_3001=not_ready' >> /tmp/runtime-cli-probe/context.txt
+          exit 1
+
+      - name: Inspect Linux WeChat desktop URL handling
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          {
+            echo '--- desktop candidates ---'
+            docker exec "$cid" bash -lc '
+              find /usr/share/applications -maxdepth 1 -type f -iname "*wechat*.desktop" 2>/dev/null | sort -u | while IFS= read -r desktop; do
+                [ -n "$desktop" ] || continue
+                echo DESKTOP_DISCOVERED=$desktop
+                grep -E "^Name=" "$desktop" || true
+                grep -E "^Exec=" "$desktop" || true
+                grep -E "^MimeType=" "$desktop" || true
+              done
+            ' 2>/dev/null || true
+            echo '--- x-scheme-handler/weixin ---'
+            docker exec "$cid" bash -lc 'command -v xdg-mime >/dev/null 2>&1 && xdg-mime query default x-scheme-handler/weixin || true' 2>/dev/null || true
+            echo '--- textual registrations ---'
+            docker exec "$cid" bash -lc 'grep -R -I -n -E "x-scheme-handler/weixin|weixin://|wxwork://" /usr/share/applications /opt/wechat 2>/dev/null | head -n 120' \
+              | sed -E 's#(/config/)[^ ]+#\1<redacted>#g' || true
+          } > /tmp/runtime-cli-probe/url-handler.txt
+
+      - name: Invoke HTTPS public-account profile URL through Linux WeChat
+        if: always()
+        run: |
+          cid="$(cat /tmp/runtime-cli-probe/container-id.txt 2>/dev/null || true)"
+          test -n "$cid" || exit 0
+          target_url='https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=AUTOTEST_BIZ&scene=124#wechat_redirect'
+          before_windows="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
+          set +e
+          docker exec -e DISPLAY=:1 -e TARGET_URL="$target_url" "$cid" bash -lc 'timeout 12s /usr/bin/wechat "$TARGET_URL" >/tmp/url-invoke-command.log 2>&1'
+          invoke_exit=$?
+          set -e
+          sleep 6
+          after_windows="$(docker exec -e DISPLAY=:1 "$cid" bash -lc 'xdotool search --onlyvisible --class wechat 2>/dev/null | wc -l' 2>/dev/null || echo 0)"
+
+          history_rows=0
+          while IFS= read -r history; do
+            [ -n "$history" ] || continue
+            count="$(docker exec "$cid" python3 -c 'import sqlite3,sys; c=sqlite3.connect("file:"+sys.argv[1]+"?mode=ro",uri=True); print(int(c.execute("SELECT count(*) FROM urls WHERE url LIKE ?",("%AUTOTEST_BIZ%",)).fetchone()[0])); c.close()' "$history" 2>/dev/null || echo 0)"
+            history_rows=$((history_rows + count))
+          done < <(docker exec "$cid" find /config/.xwechat/radium/web/profiles -maxdepth 2 -type f -name History 2>/dev/null || true)
+
+          raw_marker_files="$(docker exec "$cid" bash -lc 'if [ -d /config/.xwechat/radium/web ]; then grep -R -a -l -F "AUTOTEST_BIZ" /config/.xwechat/radium/web 2>/dev/null | wc -l; else echo 0; fi' 2>/dev/null || echo 0)"
+          {
+            echo "URL_INVOKE_EXIT=$invoke_exit"
+            echo "WINDOWS_BEFORE=$before_windows"
+            echo "WINDOWS_AFTER=$after_windows"
+            echo "HISTORY_MARKER_ROWS=$history_rows"
+            echo "RAW_MARKER_FILES=$raw_marker_files"
+          } > /tmp/runtime-cli-probe/url-invocation.txt
+
+      - name: Write sanitized CLI summary
+        if: always()
+        run: |
+          {
+            echo '# Runtime CLI Probe Latest'
+            echo
+            echo "- head_sha: \`${GITHUB_SHA}\`"
+            echo
+            echo '## Context'
+            echo '```text'
+            cat /tmp/runtime-cli-probe/context.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## URL handler capability'
+            echo '```text'
+            cat /tmp/runtime-cli-probe/url-handler.txt 2>/dev/null || true
+            echo '```'
+            echo
+            echo '## URL invocation capability'
+            echo '```text'
+            cat /tmp/runtime-cli-probe/url-invocation.txt 2>/dev/null || true
+            echo '```'
+          } > /tmp/runtime-cli-probe/summary.md
+          cat /tmp/runtime-cli-probe/summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sanitized CLI diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-cli-probe
+          path: /tmp/runtime-cli-probe/
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f .devcontainer/docker-compose.yml down -v || true

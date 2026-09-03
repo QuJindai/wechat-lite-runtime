@@ -1,51 +1,169 @@
 # Development Status
 
-## V0 objective
-
-Prove the lightweight Codespaces architecture before adding wake orchestration, MCP packaging or public-account automation.
-
 ## V0 final status
 
 **V0 = PASS**
 
 Verified on the real GitHub Codespace `musical-guide-vxp45jxgj442wg75` on 2026-09-02:
 
-- Repository visibility: **public**.
-- WeChat Linux runtime starts successfully through the pinned `ghcr.io/nickrunning/wechat-selkies:0.0.16` image.
-- Codespace workspace and WeChat service share the required network namespace.
-- WeChat Web UI port `3001` is reachable and opens the normal WeChat interface.
-- Runtime Control API `8787` has self-healing startup during acceptance.
-- `python -m app.acceptance before` returned `BASELINE_RECORDED`.
-- Baseline session state: initialized=true, file_count=1171, total_bytes=266600596.
-- The same Codespace was stopped and restarted.
-- `python -m app.acceptance after` returned `STORAGE_PASS_AUTH_PENDING`.
-- Marker survived=true; session initialized before/after=true; WeChat Web UI ready after restart=true.
-- Post-restart session state: file_count=1171, total_bytes=267093832.
-- User visually confirmed the normal WeChat interface remained logged in without rescanning a QR code.
+- repository is public
+- official Linux WeChat runtime starts through `ghcr.io/nickrunning/wechat-selkies:0.0.16`
+- port `3001` is reachable
+- control API `8787` self-heals during acceptance
+- `python -m app.acceptance before` -> `BASELINE_RECORDED`
+- stop/start of the same Codespace preserved the state marker and profile
+- `python -m app.acceptance after` -> `STORAGE_PASS_AUTH_PENDING`
+- user visually confirmed WeChat remained logged in without rescanning a QR code
 
 Therefore:
 
 - `CODESPACE_STATE_PERSISTENCE = PASS`
 - `PHYSICAL_LOGIN_PERSISTENCE = PASS`
 
-No manual `WECHAT_CONTROL_TOKEN` setup is required for V0. The runtime creates and persists a local control token automatically when an explicit secret is absent.
+## V1 Phase A-B: safe runtime and WebView evidence
 
-## V1 next phase
+Status:
 
-Build authenticated public-account discovery on top of the proven logged-in WeChat runtime. V1 scope:
+- `V1_PHASE_A_SOFTWARE = PASS`
+- `V1_SAFE_RUNTIME_PROBE = PASS`
+- `V1_PHASE_B_SOFTWARE = PASS`
+- `V1_WEBVIEW_CONTAINER_PROBE = PASS`
 
-1. Select or search a public account in the logged-in WeChat UI.
-2. Open its history / all-messages surface.
-3. Extract normalized article metadata: title, canonical URL, published time, account identity and pagination cursor.
-4. Support `recent N` and bounded time-window collection.
-5. Deduplicate and persist only article metadata outside the private WeChat session directory.
-6. Expose a small local API suitable for later standalone `@微信` MCP packaging.
-7. Keep WeChat credentials, cookies, local databases and session material private to the runtime.
+Real logged-in Codespace evidence:
 
-The first V1 gate is: **one named public account -> newest 20 articles with verified timestamps and no duplicate URLs**.
+- `cookie_store`: candidates present
+- `mp_weixin_trace`: candidates present under `.xwechat/radium/web`
+- `webview_cache`: candidates present including `.xwechat/radium/web`
+- Chromium `Cookies` and `History` SQLite stores exist
+- `Local Storage/leveldb` exists
+- `multitab_<redacted>` is the high-value profile
+- no cookie/token value was returned
 
-## Later phases
+This selected the authenticated WebView/History route and avoided unrelated chat databases.
 
-- Wake gateway / automatic Codespaces Start/Stop orchestration.
-- Standalone `@微信` MCP packaging.
-- Optional integration: expose article URLs to `深析` as a provider without sharing WeChat session material.
+The end-to-end target remains the newest 20 public-account articles with verified timestamps, unique canonical URLs, account identity and freshness.
+
+## V1 Phase C: authenticated History pagination
+
+Status:
+
+- `V1_PHASE_C_HISTORY_SEED_SOFTWARE = PASS`
+- `V1_AUTHENTICATED_HISTORY_PROVIDER_SOFTWARE = PASS`
+- `V1_PROFILE_EXT_COMPATIBILITY = PASS`
+
+Implemented and CI-verified:
+
+- read-only Chromium History seed locator restricted to `https://mp.weixin.qq.com/mp/profile_ext`
+- target-biz History seed lookup and newest-first ordering
+- private `profile_ext?action=getmsg` pagination
+- compatibility flags `scene=124`, `x5=1`, `wxtoken=`, `count<=10`
+- main and multi-article parsing with timestamp normalization
+- `ret=-3` / session/login/auth failure classification as `LOGIN_REQUIRED`
+- other rejected responses remain explicit history-surface errors
+- deterministic URL canonicalization removes auth-bearing query values
+
+## V1 Phase D-E: bootstrap, transport and container bridge
+
+Status:
+
+- `V1_ACCOUNT_BOOTSTRAP_SOFTWARE = PASS`
+- `V1_LIVE_HTTP_TRANSPORT_SOFTWARE = PASS`
+- `V1_LAUNCHER_BRIDGE = PASS`
+- `V1_LIVE_RUNTIME_FAILURE_PATH_SMOKE = PASS`
+
+Implemented:
+
+- bounded credential scanner over `.xwechat/radium/web`
+- legacy `uin + key + pass_ticket` candidates
+- token-style `appmsg_token + pass_ticket` candidates
+- modern `/mp/relatedsearchword` session context support
+- candidate rotation: stale newest credential automatically falls back to older valid candidates
+- private History seed reuse before re-opening WeChat
+- restricted `urllib` transport: same-host/path validation, redirect guard, timeout and response-size limits
+- internal workspace -> WeChat-container bridge on private Compose DNS `wechat:8790`
+- bridge is not forwarded through Codespaces and does not require Docker socket access
+- real GitHub-hosted Compose smoke is an unauthenticated failure-path integration smoke across FastAPI -> bridge -> WeChat container -> scanner/discover
+- it does not prove logged-in newest-20 pagination; that remains part of the physical gate
+
+## V1 UI fallback and name-only discovery
+
+Status:
+
+- `V1_UI_SEARCH_FALLBACK_SOFTWARE = PASS`
+- `V1_NAME_ONLY_DISCOVERY_SOFTWARE = PASS`
+
+Implemented:
+
+- evidence-gated X11 fallback using the existing WeChat window
+- keyboard-only sequence: activate window -> Ctrl+F -> write account name to clipboard -> Ctrl+V -> one Enter
+- no clipboard read, mouse click, chat read or message send
+- UI keystrokes are never considered success by themselves; target credential evidence remains mandatory
+- `POST /v1/public-accounts/discover` accepts `account_name` with optional `biz`
+- when `biz` is absent, before/after credential fingerprint delta may guide one unverified discovery
+- UI delta is navigation evidence only; it cannot verify or persist the searched account identity
+- truncated baseline or post-search scans fail instead of guessing
+- baseline fingerprints are never treated as new merely because a cache file mtime changed
+- multiple new identities return `ACCOUNT_IDENTITY_AMBIGUOUS` instead of guessing
+- error output never returns candidate biz/token/session values
+
+## V1 persistent public-account identity index
+
+Status:
+
+- `V1_PUBLIC_ACCOUNT_INDEX_SOFTWARE = PASS`
+- `V1_PUBLIC_ACCOUNT_INDEX_RUNTIME = PASS`
+
+Implemented:
+
+- `state/.public-account-index.json`
+- version 2 stores normalized display name, public `biz`, public-seed provenance and canonical seed URL
+- mode `0600`, atomic replace, corrupt-file tolerant
+- no cookie, key, pass_ticket, appmsg_token, request URL or other session material is stored
+- only seed-verified identities are persisted; generic explicit-biz and UI-delta discoveries are not
+- legacy version-1 mappings are treated as unverified and grant no identity evidence
+- subsequent name-only requests try a saved verified identity before UI search
+- the index is runtime metadata and does not by itself mark the WeChat profile as initialized
+- real Compose smoke verifies the index survives workspace restart
+
+## V1 newest-20 acceptance helper
+
+Status:
+
+- `V1_NEWEST20_ACCEPTANCE_SOFTWARE = PASS`
+- `V1_REAL_NEWEST20 = PENDING_PHYSICAL`
+
+Authoritative endpoint:
+
+- `POST /v1/public-accounts/acceptance-from-url`
+- request: public `article_url`; the resolver establishes display-name-to-biz evidence
+- always performs a 20-article discovery
+
+Compatibility endpoint `POST /v1/public-accounts/acceptance` remains available, but caller-supplied name/biz values cannot establish `account_verified` by themselves.
+
+Automated PASS requires all of:
+
+- exactly 20 returned articles
+- `count_satisfied = true`
+- `timestamps_complete = true`
+- `urls_unique = true`
+- `account_verified = true`
+- `freshness_verified = true`
+
+Identity verification requires seed evidence and exact article-biz agreement. Freshness verification requires a successful live offset-zero observation during the current call; History seeds, cached bytes and synthetic fixtures are not freshness evidence.
+
+On automated PASS it returns `AUTOMATED_GATE_PASS_UI_PENDING` plus only the first and twentieth article's public metadata for final UI cross-check. It never returns session credentials.
+
+## Remaining V1 physical gate
+
+Only one end-to-end gate remains unclosed:
+
+**one real logged-in public account -> newest 20 articles -> all automated checks PASS -> first/20th match the WeChat history UI -> zero session secrets in output/logs**.
+
+Until that real logged-in gate passes, V1 remains experimental and PR #2 should not be merged as a completed general-purpose WeChat discovery feature.
+
+## Later
+
+- bounded time-window / all-history pagination after newest-20 PASS
+- automatic Codespaces Start/Stop wake gateway
+- standalone `@微信` MCP packaging
+- optional `深析` provider receiving only article metadata/URLs, never WeChat session material

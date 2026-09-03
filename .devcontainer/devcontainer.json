@@ -3,16 +3,21 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "workspace",
   "workspaceFolder": "/workspaces/wechat-lite-runtime",
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
   "runServices": [
     "wechat"
   ],
   "shutdownAction": "stopCompose",
   "forwardPorts": [
-    3001,
+    "wechat:3001",
     8787
   ],
   "portsAttributes": {
-    "3001": {
+    "wechat:3001": {
       "label": "WeChat Web UI",
       "protocol": "https",
       "onAutoForward": "openBrowser"
@@ -23,5 +28,5 @@
     }
   },
   "postCreateCommand": "python -m pip install -r requirements-dev.txt",
-  "postStartCommand": "bash scripts/start-control-api.sh"
+  "postStartCommand": "bash scripts/start-control-api.sh && (nohup bash scripts/run-pending-acceptance.sh >/tmp/v1-pending-acceptance.log 2>&1 &)"
 }
