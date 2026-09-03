@@ -4,7 +4,6 @@ services:
       context: ..
       dockerfile: .devcontainer/Dockerfile
     command: sleep infinity
-    network_mode: service:wechat
     volumes:
     - ..:/workspaces/wechat-lite-runtime:cached
     environment:
@@ -12,10 +11,9 @@ services:
       WECHAT_WEB_HOST: 127.0.0.1
       WECHAT_WEB_PORT: '3001'
       WECHAT_PROBE_TIMEOUT: '0.5'
-    depends_on:
-    - wechat
   wechat:
     image: ghcr.io/nickrunning/wechat-selkies:0.0.16
+    network_mode: service:workspace
     restart: unless-stopped
     entrypoint:
     - /bin/bash

@@ -108,10 +108,12 @@ def test_readme_has_branch_specific_codespaces_quickstart_link():
     assert "https://codespaces.new/QuJindai/wechat-lite-runtime/tree/feat/v0-codespace-runtime?quickstart=1" in readme
 
 
-def test_workspace_shares_wechat_network_for_forwarded_ports():
+def test_wechat_shares_workspace_network_for_codespaces_port_forwarding():
     compose = load_yaml(".devcontainer/docker-compose.yml")
     workspace = compose["services"]["workspace"]
-    assert workspace["network_mode"] == "service:wechat"
+    wechat = compose["services"]["wechat"]
+    assert "network_mode" not in workspace
+    assert wechat["network_mode"] == "service:workspace"
     assert workspace["environment"]["WECHAT_WEB_HOST"] == "127.0.0.1"
     assert "ports" not in workspace
-    assert "ports" not in compose["services"]["wechat"]
+    assert "ports" not in wechat
