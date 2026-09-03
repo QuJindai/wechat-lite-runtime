@@ -99,7 +99,9 @@ Implemented:
 - no clipboard read, mouse click, chat read or message send
 - UI keystrokes are never considered success by themselves; target credential evidence remains mandatory
 - `POST /v1/public-accounts/discover` accepts `account_name` with optional `biz`
-- when `biz` is absent, before/after credential fingerprint delta resolves a unique new public-account identity
+- when `biz` is absent, before/after credential fingerprint delta may guide one unverified discovery
+- UI delta is navigation evidence only; it cannot verify or persist the searched account identity
+- truncated baseline or post-search scans fail instead of guessing
 - baseline fingerprints are never treated as new merely because a cache file mtime changed
 - multiple new identities return `ACCOUNT_IDENTITY_AMBIGUOUS` instead of guessing
 - error output never returns candidate biz/token/session values
@@ -114,11 +116,12 @@ Status:
 Implemented:
 
 - `state/.public-account-index.json`
-- stores only normalized public-account display name -> public `biz`
+- version 2 stores normalized display name, public `biz`, public-seed provenance and canonical seed URL
 - mode `0600`, atomic replace, corrupt-file tolerant
 - no cookie, key, pass_ticket, appmsg_token, request URL or other session material is stored
-- successful discovery records the mapping; failed discovery does not
-- subsequent name-only requests try the saved `biz` before UI search
+- only seed-verified identities are persisted; generic explicit-biz and UI-delta discoveries are not
+- legacy version-1 mappings are treated as unverified and grant no identity evidence
+- subsequent name-only requests try a saved verified identity before UI search
 - the index is runtime metadata and does not by itself mark the WeChat profile as initialized
 - real Compose smoke verifies the index survives workspace restart
 
@@ -129,11 +132,13 @@ Status:
 - `V1_NEWEST20_ACCEPTANCE_SOFTWARE = PASS`
 - `V1_REAL_NEWEST20 = PENDING_PHYSICAL`
 
-Endpoint:
+Authoritative endpoint:
 
-- `POST /v1/public-accounts/acceptance`
-- request: `account_name`, optional `biz`
+- `POST /v1/public-accounts/acceptance-from-url`
+- request: public `article_url`; the resolver establishes display-name-to-biz evidence
 - always performs a 20-article discovery
+
+Compatibility endpoint `POST /v1/public-accounts/acceptance` remains available, but caller-supplied name/biz values cannot establish `account_verified` by themselves.
 
 Automated PASS requires all of:
 
@@ -143,6 +148,8 @@ Automated PASS requires all of:
 - `urls_unique = true`
 - `account_verified = true`
 - `freshness_verified = true`
+
+Identity verification requires seed evidence and exact article-biz agreement. Freshness verification requires a successful live offset-zero observation during the current call; History seeds, cached bytes and synthetic fixtures are not freshness evidence.
 
 On automated PASS it returns `AUTOMATED_GATE_PASS_UI_PENDING` plus only the first and twentieth article's public metadata for final UI cross-check. It never returns session credentials.
 

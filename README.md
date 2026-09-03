@@ -56,41 +56,41 @@ Minimal body:
 
 The runtime attempts discovery in this order:
 
-1. persisted public-account name -> biz index, when available
+1. persisted seed-verified public-account identity, when available
 2. matching private Chromium History seed already observed by WeChat
 3. authenticated WebView credential candidates
 4. URL bootstrap through the internal WeChat-container bridge
 5. evidence-gated X11 search fallback
 
-The X11 fallback only navigates the existing WeChat window by keyboard. It does not read chats, export contacts, read the clipboard, click chat content, or send messages. Navigation is not treated as success until matching public-account credential evidence appears.
+The X11 fallback only navigates the existing WeChat window by keyboard. It does not read chats, export contacts, read the clipboard, click chat content, or send messages. A unique credential delta may guide one unverified discovery, but UI navigation is not account-identity proof and is never persisted by itself. A caller-supplied name or biz is not identity evidence.
 
 ## Name-to-biz index
 
-After a successful discovery, the runtime saves a non-sensitive mapping in:
+After successful public-seed identity validation, the runtime may save the non-sensitive verified identity in:
 
 ```text
 state/.public-account-index.json
 ```
 
-It stores only a normalized public-account display name and public `biz` identifier. The file is mode `0600` and contains no cookie, `key`, `pass_ticket`, `appmsg_token`, request URL, message, contact or browser-session value. Subsequent name-only requests can therefore avoid repeated UI search.
+The version 2 index stores only seed-verified identities: normalized public-account display name, public `biz`, `public_seed_article` provenance and canonical public seed URL. The file is mode `0600` and contains no cookie, `key`, `pass_ticket`, `appmsg_token`, private request URL, message, contact or browser-session value. Generic explicit-biz and UI-delta discoveries are not written. Subsequent name-only requests may reuse only seed-verified identities.
 
 ## Newest-20 acceptance
 
-The final V1 gate has a dedicated endpoint:
+The authoritative final V1 gate resolves identity from a public seed article:
 
 ```text
-POST /v1/public-accounts/acceptance
+POST /v1/public-accounts/acceptance-from-url
 ```
 
 Body:
 
 ```json
 {
-  "account_name": "目标公众号"
+  "article_url": "https://mp.weixin.qq.com/s/PUBLIC_ARTICLE_ID"
 }
 ```
 
-An optional `biz` may also be supplied. The endpoint always requests 20 articles and checks:
+`POST /v1/public-accounts/acceptance` remains compatible with name/biz callers, but those caller values cannot establish identity and therefore cannot pass by themselves. The seed endpoint always requests 20 articles and checks:
 
 - exactly 20 articles
 - count satisfied
@@ -98,6 +98,8 @@ An optional `biz` may also be supplied. The endpoint always requests 20 articles
 - unique canonical URLs
 - account identity verified
 - freshness verified
+
+Account verification requires a seed-resolved display-name-to-biz identity and matching article biz values. Freshness verification requires a successful live offset-zero `profile_ext?action=getmsg` observation during the current call; cached, byte-only and synthetic data remain unverified.
 
 If those automated checks pass, the verdict is:
 
@@ -127,4 +129,4 @@ bash scripts/probe-history-seed.sh
 
 The safe runtime probe does not print cookies, auth tokens, raw WeChat database contents, contacts or messages.
 
-The WebView probe returns only sanitized paths, schema names and marker counts; it does not return cookie or token values, Local Storage values or database rows.
+The WebView probe returns only sanitized paths, allowlisted schema names and marker counts; unknown path and SQLite identifiers are redacted. File, byte, directory and elapsed-time budgets are explicit, and a bounded scan reports truncation rather than success. It does not return cookie or token values, Local Storage values or database rows.
